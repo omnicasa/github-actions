@@ -66,16 +66,13 @@ env:
   derived: {}
   # APP_PUBLIC_URL: "https://${APP_DOMAIN}"
 
-# Schema migrations as a Helm pre-upgrade hook Job. Read the chart's
-# templates/migration-job.yaml before enabling: --atomic rolls back the release,
-# not the database, so migrations must be additive for one release.
-migration:
-  enabled: false
-  # command:
-  #   - npx
-  #   - prisma
-  #   - migrate
-  #   - deploy
+# Migrations are NOT configured here. The chart reads `migration.*` straight from
+# deploy/values.yaml, so putting it in both files would mean two switches with no
+# sync between them — and only the values.yaml one would take effect.
+#
+# Rule of thumb for which file a setting belongs in: if the CHART reads it, it goes
+# in deploy/values.yaml. If the WORKFLOW needs it before helm runs — the env
+# allowlist, required keys, the namespace to check — it goes here.
 
 # Per-environment deviations. Only app, namespace, repositoryPrefix and tlsSecretName
 # may be overridden — deliberately narrow, so an environment can never quietly

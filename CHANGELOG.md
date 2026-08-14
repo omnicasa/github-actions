@@ -8,6 +8,21 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 ## [Unreleased]
 
+## [v1.1.0] — 2026-08-14
+
+### Removed — breaking for any manifest using `migration:`
+
+- `migration` is no longer a `deploy-manifest.yml` key. The chart reads `migration.*`
+  from `deploy/values.yaml` and always did; the manifest copy was only ever used to emit
+  an action output that nothing consumed. So `migration.enabled: true` in a manifest
+  looked like the switch and did nothing.
+
+  Both `render-values.py` and `validate-manifest.py` now **hard-fail** if the key is
+  present, naming the fix, rather than ignoring it silently. Move `migration.*` into
+  `deploy/values.yaml`.
+
+  Also drops the unused `migration-enabled` output from the `render-values` action.
+
 ## [v1.0.0] — 2026-08-14
 
 First release. `omnicasa-tools` is the only consumer.

@@ -53,9 +53,6 @@ outputs:
   image:
     description: Full image reference that will be deployed
     value: ${{ steps.render.outputs.image }}
-  migration-enabled:
-    description: Whether the manifest enables the migration hook Job
-    value: ${{ steps.render.outputs.migration-enabled }}
   release-values:
     description: Path to the rendered release values file
     value: ${{ steps.render.outputs.release-values }}

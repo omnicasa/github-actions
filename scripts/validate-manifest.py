@@ -26,7 +26,7 @@ except ImportError as exc:
 ENV_OVERRIDABLE = {"app", "namespace", "repositoryPrefix", "tlsSecretName"}
 KNOWN_TOP_LEVEL = {
     "app", "namespace", "build", "workingDirectory", "domainVar", "tlsSecretName",
-    "ingress", "required", "env", "migration", "environments", "repositoryPrefix",
+    "ingress", "required", "env", "environments", "repositoryPrefix",
     "helmValues",
 }
 # Kubernetes names: RFC 1123 labels.
@@ -160,11 +160,13 @@ def check(path: Path) -> None:
             "move those keys into deploy/values.yaml"
         )
 
-    migration = data.get("migration") or {}
-    if not isinstance(migration, dict):
-        err(f"{path}: 'migration' must be a mapping")
-    elif migration.get("enabled") and not migration.get("command"):
-        err(f"{path}: migration.enabled is true but migration.command is empty")
+    # The chart reads migration.* from deploy/values.yaml. A copy here is a second
+    # switch that reads as authoritative and has no effect at all.
+    if "migration" in data:
+        err(
+            f"{path}: 'migration' belongs in deploy/values.yaml, not the manifest — "
+            "the chart reads it from there and ignores this copy"
+        )
 
     environments = data.get("environments") or {}
     if not isinstance(environments, dict):

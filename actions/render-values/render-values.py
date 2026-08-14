@@ -345,15 +345,20 @@ def main() -> None:
         json.dumps({"config": {"env": {"variables": variables, "secrets": secrets}}})
     )
 
-    migration = manifest.get("migration") or {}
-    migration_enabled = bool(migration.get("enabled")) if isinstance(migration, dict) else False
+    # `migration` deliberately has no home here. The chart reads .Values.migration.*
+    # straight from deploy/values.yaml; a copy in the manifest would be a second
+    # switch that looks authoritative and does nothing.
+    if "migration" in manifest:
+        fail(
+            "manifest key 'migration' has no effect — the chart reads migration.* from "
+            "deploy/values.yaml. Move it there and delete it here, or the two will drift"
+        )
 
     for key, value in (
         ("app", app),
         ("namespace", namespace),
         ("repository", repository),
         ("image", f"{registry}/{repository}:{image_tag}"),
-        ("migration-enabled", "true" if migration_enabled else "false"),
         ("release-values", str(RELEASE_OUT)),
         ("app-env-values", str(APP_ENV_OUT)),
     ):

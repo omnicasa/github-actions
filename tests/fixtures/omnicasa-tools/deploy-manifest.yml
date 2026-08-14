@@ -61,10 +61,8 @@ env:
     # Deriving it means the hostname has exactly one source.
     AUTH_URL: "https://${APP_DOMAIN}"
 
-# Prisma was removed from this app: no dependency, no schema, no client. The two
-# remaining databases are reached over mssql with connection strings, so there is
-# no migration step to run and nothing for the chart's hook Job to do.
-migration:
-  enabled: false
+# Migrations are configured in deploy/values.yaml, not here — the chart reads them
+# directly. (This app has none: Prisma was removed, and the two remaining databases
+# are reached over mssql with connection strings.)
 
 environments: {}
