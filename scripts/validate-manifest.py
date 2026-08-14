@@ -18,9 +18,9 @@ from pathlib import Path
 
 try:
     import yaml
-except ImportError:
+except ImportError as exc:
     print("PyYAML required: python3 -m pip install pyyaml", file=sys.stderr)
-    raise SystemExit(2)
+    raise SystemExit(2) from exc
 
 # Must match render-values.py's ENV_OVERRIDABLE.
 ENV_OVERRIDABLE = {"app", "namespace", "repositoryPrefix", "tlsSecretName"}

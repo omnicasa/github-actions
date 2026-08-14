@@ -76,10 +76,12 @@ for f in $WORKFLOWS; do
 
     ref=$(grep -o 'deploy\.yml@[^ ]*' "$f" | head -1 | cut -d@ -f2)
     case "$ref" in
+      # The house standard is the floating major tag. It is moved only by
+      # release.yml on an annotated vX.Y.Z, and CI gates every merge behind it.
+      v[0-9]) ok "$f tracks $ref" ;;
       v[0-9]*.[0-9]*.[0-9]*) ok "$f pins $ref" ;;
-      v[0-9]*)               warn "$f pins the floating tag $ref; an exact vX.Y.Z is reviewable" ;;
-      main|master|"")        fail "$f tracks $ref — an unreviewed change to the shared repo deploys straight to production" ;;
-      *)                     ok "$f pins $ref" ;;
+      main|master|"") fail "$f tracks $ref — an unreviewed merge to the shared repo would deploy straight to production" ;;
+      *) warn "$f uses an unrecognised ref: $ref" ;;
     esac
   fi
 

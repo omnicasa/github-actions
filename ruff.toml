@@ -24,8 +24,12 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-# Both scripts deliberately catch bare Exception around yaml.safe_load: PyYAML raises
-# several unrelated types for malformed input and the caller wants one clean
-# "not valid YAML" message with the reason attached, not a stack trace.
-"actions/render-values/render-values.py" = ["BLE001"]
+# BLE001: both scripts deliberately catch bare Exception around yaml.safe_load. PyYAML
+#   raises several unrelated types for malformed input and the caller wants one clean
+#   "not valid YAML" message with the reason attached, not a stack trace.
+# S108: the /tmp paths are defaults for a single-tenant CI runner, and they are only
+#   defaults — the workflow overrides them and deletes the files under `if: always()`.
+#   A mkstemp name cannot be used here because helm needs the path passed as `-f`, and
+#   the diff and the upgrade must be handed the identical filenames.
+"actions/render-values/render-values.py" = ["BLE001", "S108"]
 "scripts/validate-manifest.py" = ["BLE001"]

@@ -64,14 +64,23 @@ workflow. It also needs no extra registry auth.
 
 ## Versioning
 
-Pin an exact tag (`@v1.0.0`). Dependabot updates reusable-workflow refs, so bumps arrive as
-reviewable PRs. `v1` is a floating major tag moved only by `release.yml` on an annotated
-release; use it only if you want unreviewed updates.
+Consumers track the floating major tag, `@v1`. It is moved only by `release.yml`, on an
+annotated `vX.Y.Z` push, and every merge to `main` is gated by `ci.yml` first.
 
-Third-party actions used *inside* this repo are SHA-pinned. Our own are tag-pinned, since we
-control this repo and do not rewrite its history.
+The trade-off is deliberate and worth stating: a consumer's next deploy picks up whatever
+`v1` points at, without a PR to review. In exchange, there is exactly one ref in the whole
+system — the callers, the reusable workflows and the composite actions they invoke all say
+`@v1`, so they cannot disagree with each other. Mixed refs are the failure mode this
+avoids: a workflow pinned at `v1.0.0` invoking actions at `v1` silently combines two
+versions, because a called workflow's `uses:` is resolved fresh and does not inherit the
+ref the workflow itself was loaded from.
 
-Every change is in [CHANGELOG.md](CHANGELOG.md). Read it before bumping.
+A repo that wants stability instead can pin `@vX.Y.Z` — but then **every** internal action
+ref must be pinned to the same version, or you get exactly the split above.
+
+Third-party actions used *inside* this repo are pinned by tag and updated by Dependabot.
+
+Every change is in [CHANGELOG.md](CHANGELOG.md). Read it before moving `v1`.
 
 ## Access
 

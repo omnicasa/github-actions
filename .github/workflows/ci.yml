@@ -42,6 +42,31 @@ jobs:
           python3 -m py_compile actions/render-values/render-values.py scripts/validate-manifest.py
           ruff check actions/render-values/render-values.py scripts/validate-manifest.py
 
+      - name: Internal action refs all agree
+        run: |
+          set -euo pipefail
+          # A called workflow's `uses:` is resolved fresh — it does NOT inherit the ref
+          # the workflow itself was loaded from. So a workflow tagged v1.0.0 that invokes
+          # its actions at @v1 silently combines two versions. Every internal ref must
+          # therefore be the same string. The first release shipped with @v1 refs while
+          # only v1.0.0 existed, and every run failed with "unable to find version v1".
+          # Only the reusable workflows, by name. Scanning .github/workflows/ as a
+          # directory would match this very grep pattern inside ci.yml.
+          extract() { grep -hoE 'uses: omnicasa/github-actions/\S+@\S+' "$@" | cut -d@ -f2 | sort -u; }
+          refs=$(extract .github/workflows/deploy.yml .github/workflows/rollback.yml)
+          echo "refs in use:"; echo "$refs"
+          if [ "$(echo "$refs" | wc -l)" -ne 1 ]; then
+            echo "::error::internal refs disagree — every omnicasa/github-actions ref must use the same tag"
+            exit 1
+          fi
+          # Templates hand this ref to app repos; they must match too.
+          tmpl=$(extract templates/caller-*.yml)
+          if [ "$tmpl" != "$refs" ]; then
+            echo "::error::templates/ use '$tmpl' but the workflows use '$refs'"
+            exit 1
+          fi
+          echo "all internal and template refs agree on $refs"
+
       - name: Composite action metadata parses
         run: |
           set -euo pipefail

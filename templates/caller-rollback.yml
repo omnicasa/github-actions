@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   rollback:
-    uses: omnicasa/github-actions/.github/workflows/rollback.yml@v1.0.0
+    uses: omnicasa/github-actions/.github/workflows/rollback.yml@v1
     with:
       environment: ${{ inputs.environment }}
       revision: ${{ inputs.revision }}
