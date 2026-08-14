@@ -1,0 +1,62 @@
+{{- range .Values.cronJobs }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "chart.fullname" $ }}-{{ .name }}
+  labels:
+    {{- include "chart.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: cronjob
+spec:
+  schedule: {{ .schedule | quote }}
+  concurrencyPolicy: {{ .concurrencyPolicy | default "Forbid" }}
+  suspend: {{ .suspend | default false }}
+  successfulJobsHistoryLimit: {{ .successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .failedJobsHistoryLimit | default 3 }}
+  {{- with .startingDeadlineSeconds }}
+  startingDeadlineSeconds: {{ . }}
+  {{- end }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .backoffLimit | default 1 }}
+      {{- with .activeDeadlineSeconds }}
+      activeDeadlineSeconds: {{ . }}
+      {{- end }}
+      template:
+        metadata:
+          labels:
+            {{- include "chart.selectorLabels" $ | nindent 12 }}
+            app.kubernetes.io/component: cronjob
+        spec:
+          restartPolicy: {{ .restartPolicy | default "Never" }}
+          {{- with $.Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $.Values.hostAliases }}
+          hostAliases:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "chart.serviceAccountName" $ }}
+          securityContext:
+            {{- toYaml $.Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: {{ .name }}
+              securityContext:
+                {{- toYaml $.Values.securityContext | nindent 16 }}
+              # Same image as the app so a scheduled task can never run older code.
+              image: {{ .image | default (include "chart.image" $) | quote }}
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
+              envFrom:
+                {{- include "chart.envFrom" $ | nindent 16 }}
+              {{- with .command }}
+              command:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- with .args }}
+              args:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              resources:
+                {{- toYaml (.resources | default $.Values.resources) | nindent 16 }}
+{{- end }}

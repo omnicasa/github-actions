@@ -1,0 +1,81 @@
+name: Helm rollback
+description: Roll a release back to a previous revision.
+
+inputs:
+  release:
+    description: Helm release name
+    required: true
+  namespace:
+    description: Namespace holding the release
+    required: true
+  revision:
+    description: Revision to roll back to. Blank means the previous one.
+    required: false
+    default: ""
+  timeout:
+    description: helm rollback timeout
+    required: false
+    default: 10m
+  rollout-timeout:
+    description: kubectl rollout status timeout
+    required: false
+    default: 5m
+
+outputs:
+  revision:
+    description: Helm revision after the rollback
+    value: ${{ steps.rollback.outputs.revision }}
+
+runs:
+  using: composite
+  steps:
+    - name: Show history before rolling back
+      shell: bash
+      env:
+        RELEASE: ${{ inputs.release }}
+        NAMESPACE: ${{ inputs.namespace }}
+      run: |
+        set -euo pipefail
+        # Printed BEFORE the rollback on purpose: afterwards this view no longer
+        # shows the state the decision was made from.
+        helm history "$RELEASE" -n "$NAMESPACE" --max 10 | tee /tmp/helm-history.txt
+        {
+          echo "### Helm history before rollback — $RELEASE ($NAMESPACE)"
+          echo '```'
+          cat /tmp/helm-history.txt
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Roll back
+      id: rollback
+      shell: bash
+      env:
+        RELEASE: ${{ inputs.release }}
+        NAMESPACE: ${{ inputs.namespace }}
+        REVISION: ${{ inputs.revision }}
+        TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        set -euo pipefail
+        # An empty revision argument means "the previous release" to helm.
+        # shellcheck disable=SC2086
+        helm rollback "$RELEASE" $REVISION \
+          -n "$NAMESPACE" \
+          --wait \
+          --timeout "$TIMEOUT"
+
+        rev=$(helm status "$RELEASE" -n "$NAMESPACE" -o json | jq -r '.version')
+        echo "revision=$rev" >> "$GITHUB_OUTPUT"
+        echo "::notice::rolled back $RELEASE to revision $rev"
+
+    - name: Verify rollout
+      shell: bash
+      env:
+        RELEASE: ${{ inputs.release }}
+        NAMESPACE: ${{ inputs.namespace }}
+        ROLLOUT_TIMEOUT: ${{ inputs.rollout-timeout }}
+      run: |
+        set -euo pipefail
+        kubectl rollout status "deployment/$RELEASE" \
+          --namespace "$NAMESPACE" \
+          --timeout="$ROLLOUT_TIMEOUT"
+        kubectl get pods -n "$NAMESPACE" -o wide

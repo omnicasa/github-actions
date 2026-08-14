@@ -1,0 +1,286 @@
+name: CI
+
+# This repo has one consumer today and will have seven. A bad merge here breaks all of
+# them at once, so every gate that can run without a cluster runs on every PR.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  HELM_VERSION: v3.19.0
+  CHART: actions/helm-deploy/chart
+
+jobs:
+  lint:
+    name: Lint workflows and scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: actionlint
+        uses: docker://rhysd/actionlint:1.7.7
+        with:
+          args: -color
+
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck actions/*/*.sh scripts/*.sh
+
+      - name: Python syntax and style
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet ruff pyyaml
+          python3 -m py_compile actions/render-values/render-values.py scripts/validate-manifest.py
+          ruff check actions/render-values/render-values.py scripts/validate-manifest.py
+
+      - name: Composite action metadata parses
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, sys, yaml
+          bad = 0
+          for f in sorted(glob.glob("actions/*/action.yml")):
+              try:
+                  d = yaml.safe_load(open(f))
+              except Exception as exc:
+                  print(f"FAIL {f}: {exc}"); bad = 1; continue
+              if d.get("runs", {}).get("using") != "composite":
+                  print(f"FAIL {f}: runs.using must be composite"); bad = 1
+              for step in d.get("runs", {}).get("steps", []):
+                  if "run" in step and "shell" not in step:
+                      print(f"FAIL {f}: a run: step is missing shell:"); bad = 1
+              print(f"ok {f}")
+          sys.exit(bad)
+          PY
+
+  secret-leak:
+    name: Renderer never prints a value
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --quiet pyyaml
+
+      - name: Render with planted secrets, assert none appear
+        run: |
+          set -euo pipefail
+          export VARS_JSON='{"OVH_REGISTRY":"reg.example","IMAGE_PULL_SECRET_NAME":"ovh-reg","APP_DOMAIN":"tools.example.com","NODE_ENV":"production"}'
+          # A comma-bearing password and a JSON map: both would corrupt a release
+          # under `helm --set`, which is why values files exist.
+          export SECRETS_JSON='{"DATABASE_URL":"postgres://u:CANARY,WITH,COMMAS@h/db","AUTH_SECRET":"CANARY_AUTH","CUSTOMER_DB_HOST_MAP":"{\"a\":\"1.2.3.4\"}","github_token":"CANARY_TOKEN"}'
+          export ENVIRONMENT=production IMAGE_TAG=deadbeef
+          export DEPLOY_MANIFEST=tests/fixtures/omnicasa-tools/deploy-manifest.yml
+          export RELEASE_VALUES_OUT=/tmp/release-values.json
+          export APP_ENV_VALUES_OUT=/tmp/app-env-values.json
+
+          python3 actions/render-values/render-values.py > /tmp/render.log 2>&1
+          cat /tmp/render.log
+
+          # The script is handed the whole secrets context, so one careless print
+          # would leak everything. Assert on the log, not on intent.
+          if grep -qE 'CANARY_AUTH|CANARY,WITH,COMMAS|CANARY_TOKEN' /tmp/render.log; then
+            echo "::error::render-values.py printed a secret value"; exit 1
+          fi
+
+          # github_token is in the context but not the manifest allowlist.
+          if grep -q 'CANARY_TOKEN' /tmp/app-env-values.json; then
+            echo "::error::github_token reached the release"; exit 1
+          fi
+
+          # The comma-bearing password must survive byte-for-byte.
+          python3 - <<'PY'
+          import json
+          v = json.load(open("/tmp/app-env-values.json"))["config"]["env"]["secrets"]
+          assert v["DATABASE_URL"] == "postgres://u:CANARY,WITH,COMMAS@h/db", v["DATABASE_URL"]
+          assert v["CUSTOMER_DB_HOST_MAP"] == '{"a":"1.2.3.4"}'
+          print("commas and JSON survived intact")
+          PY
+          rm -f /tmp/*-values.json
+
+  manifest:
+    name: Validate manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --quiet pyyaml
+      - run: python3 scripts/validate-manifest.py templates/deploy-manifest.yml
+      - run: python3 scripts/validate-manifest.py tests/fixtures/*/deploy-manifest.yml
+
+      - name: Validator rejects a broken manifest
+        run: |
+          set -euo pipefail
+          cat > /tmp/bad.yml <<'EOF'
+          app: Bad_Name
+          namespace: bad
+          env:
+            variables:
+              - DUP
+            secrets:
+              - DUP
+          EOF
+          if python3 scripts/validate-manifest.py /tmp/bad.yml; then
+            echo "::error::validator accepted a manifest it must reject"; exit 1
+          fi
+          echo "validator rejects broken manifests"
+
+  chart:
+    name: Chart lint and golden render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4.2.0
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - run: helm lint "$CHART"
+
+      - name: Schema rejects an unknown key
+        run: |
+          set -euo pipefail
+          echo 'replicasCount: 3' > /tmp/typo.yaml
+          if helm template t "$CHART" -f /tmp/typo.yaml >/dev/null 2>&1; then
+            echo "::error::values.schema.json accepted a typo'd key"; exit 1
+          fi
+          echo "schema rejects unknown keys"
+
+      - name: Golden render is unchanged
+        run: |
+          set -euo pipefail
+          helm template omnicasa-tools "$CHART" -n omnicasa-tools \
+            -f "$CHART/values.yaml" \
+            -f tests/fixtures/omnicasa-tools/values.yaml \
+            -f tests/fixtures/omnicasa-tools/release-values.yaml \
+            > /tmp/rendered.yaml
+
+          # The golden file is the contract with every live release. A diff here means
+          # a chart change alters running workloads — intended sometimes, never silently.
+          if ! diff -u tests/golden/omnicasa-tools.yaml /tmp/rendered.yaml; then
+            echo "::error::chart output changed. If intended, update tests/golden/ and say why in CHANGELOG.md"
+            exit 1
+          fi
+          echo "golden render matches"
+
+      - name: Names and selectors are stable
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import yaml, sys
+          docs = [d for d in yaml.safe_load_all(open("/tmp/rendered.yaml")) if d]
+          # Every existing release was created by a chart whose selector was
+          # {app.kubernetes.io/name: <release>, app.kubernetes.io/instance: <release>}.
+          # Deployment.spec.selector is immutable, so drifting from this breaks every
+          # upgrade of every already-deployed app.
+          want = {"app.kubernetes.io/name": "omnicasa-tools",
+                  "app.kubernetes.io/instance": "omnicasa-tools"}
+          seen = {}
+          for d in docs:
+              seen[d["kind"]] = d["metadata"]["name"]
+              if d["kind"] == "Deployment":
+                  assert d["metadata"]["name"] == "omnicasa-tools", d["metadata"]["name"]
+                  assert d["spec"]["selector"]["matchLabels"] == want, d["spec"]["selector"]
+              if d["kind"] == "Service":
+                  assert d["spec"]["selector"] == want, d["spec"]["selector"]
+          for kind, name in (("Deployment", "omnicasa-tools"), ("Service", "omnicasa-tools"),
+                             ("Ingress", "omnicasa-tools"), ("Secret", "omnicasa-tools-secrets"),
+                             ("ConfigMap", "omnicasa-tools-config")):
+              assert seen.get(kind) == name, f"{kind} is {seen.get(kind)}, expected {name}"
+          print("names and selectors stable")
+          PY
+
+      - name: Optional features render
+        run: |
+          set -euo pipefail
+          # Every opt-in block, on at once — these are off by default so nothing else
+          # in CI would ever render them.
+          cat > /tmp/all-on.yaml <<'EOF'
+          migration:
+            enabled: true
+            command:
+              - npx
+              - prisma
+              - migrate
+              - deploy
+          autoscaling:
+            enabled: true
+          podDisruptionBudget:
+            enabled: true
+          cronJobs:
+            - name: nightly
+              schedule: "0 2 * * *"
+              command:
+                - node
+                - sync.js
+          extraManifests:
+            - apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: "{{ .Release.Name }}-extra"
+              data:
+                hello: world
+          EOF
+          helm template t "$CHART" -f "$CHART/values.yaml" -f /tmp/all-on.yaml > /tmp/all-on-out.yaml
+          for kind in Job ScaledObject PodDisruptionBudget CronJob; do
+            grep -q "kind: $kind" /tmp/all-on-out.yaml || { echo "::error::$kind did not render"; exit 1; }
+          done
+          grep -q 't-extra' /tmp/all-on-out.yaml || { echo "::error::extraManifests not templated"; exit 1; }
+          echo "optional features render"
+
+      - name: Values needing quoting survive
+        run: |
+          set -euo pipefail
+          # A value containing a quote, a colon and a newline broke the old
+          # ConfigMap template, which wrapped values in hand-written quotes.
+          python3 - <<'PY' > /tmp/nasty.yaml
+          import json
+          nasty = 'has "quotes": and\na newline, plus, commas'
+          print(json.dumps({"config": {"env": {
+              "variables": {"NASTY": nasty},
+              "secrets": {"NASTY_SECRET": nasty}}}}))
+          PY
+          helm template t "$CHART" -f "$CHART/values.yaml" -f /tmp/nasty.yaml > /tmp/nasty-out.yaml
+          python3 - <<'PY'
+          import base64, yaml
+          nasty = 'has "quotes": and\na newline, plus, commas'
+          docs = {d["kind"]: d for d in yaml.safe_load_all(open("/tmp/nasty-out.yaml")) if d}
+          assert docs["ConfigMap"]["data"]["NASTY"] == nasty
+          assert base64.b64decode(docs["Secret"]["data"]["NASTY_SECRET"]).decode() == nasty
+          print("awkward values round-trip intact")
+          PY
+
+  kubeconform:
+    name: Rendered manifests are valid Kubernetes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4.2.0
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -sfL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar xz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate against the cluster's Kubernetes version
+        run: |
+          set -euo pipefail
+          helm template omnicasa-tools "$CHART" -n omnicasa-tools \
+            -f "$CHART/values.yaml" \
+            -f tests/fixtures/omnicasa-tools/values.yaml \
+            -f tests/fixtures/omnicasa-tools/release-values.yaml \
+          | kubeconform -strict -summary \
+              -kubernetes-version 1.32.0 \
+              -schema-location default \
+              -ignore-missing-schemas   # KEDA ScaledObject is a CRD

@@ -1,0 +1,220 @@
+name: Helm deploy
+description: Preflight, diff and deploy the unified chart with helm upgrade --atomic.
+
+# The unified chart is vendored at ./chart inside this action. A reusable workflow's
+# `actions/checkout` fetches the CALLER's repo, so files in omnicasa/github-actions are
+# not on disk during a deploy — but a composite action's own directory always is, via
+# ${{ github.action_path }}. One tag therefore pins the chart, the workflow and the
+# scripts together.
+
+inputs:
+  release:
+    description: Helm release name (also the Deployment name)
+    required: true
+  namespace:
+    description: Target namespace — pre-created out of band, never created here
+    required: true
+  values-files:
+    description: >-
+      Newline-separated values files, applied in order after the chart's own
+      values.yaml. Missing files are skipped. The diff and the upgrade receive the
+      identical list — that equality is what makes the diff worth reading.
+    required: true
+  chart-path:
+    description: Override the bundled chart. Leave blank to use the vendored one.
+    required: false
+    default: ""
+  timeout:
+    description: helm upgrade timeout
+    required: false
+    default: 10m
+  rollout-timeout:
+    description: kubectl rollout status timeout
+    required: false
+    default: 5m
+  history-max:
+    description: Helm revisions to retain
+    required: false
+    default: "10"
+  atomic:
+    description: Roll back automatically if the upgrade fails
+    required: false
+    default: "true"
+  dry-run:
+    description: Render and diff, then stop before the upgrade
+    required: false
+    default: "false"
+  image-pull-secret:
+    description: Pull secret name to verify exists in the namespace (vars.IMAGE_PULL_SECRET_NAME)
+    required: false
+    default: ""
+
+outputs:
+  revision:
+    description: Helm revision after the upgrade
+    value: ${{ steps.deploy.outputs.revision }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve chart and values
+      id: resolve
+      shell: bash
+      env:
+        VALUES_FILES: ${{ inputs.values-files }}
+        CHART_INPUT: ${{ inputs.chart-path }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        chart="${CHART_INPUT:-}"
+        [ -n "$chart" ] || chart="$ACTION_PATH/chart"
+        [ -d "$chart" ] || { echo "::error::chart not found at $chart"; exit 1; }
+        echo "chart=$chart" >> "$GITHUB_OUTPUT"
+
+        # Build the -f list once and reuse it verbatim for diff and upgrade.
+        # Anything else and the diff stops predicting the upgrade.
+        args="-f $chart/values.yaml"
+        while IFS= read -r f; do
+          [ -n "$f" ] || continue
+          if [ -f "$f" ]; then
+            args="$args -f $f"
+            echo "values: $f"
+          else
+            echo "values: $f (absent, skipped)"
+          fi
+        done <<< "$VALUES_FILES"
+        echo "args=$args" >> "$GITHUB_OUTPUT"
+
+    - name: Preflight — namespace and pull secret
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        PULL_SECRET: ${{ inputs.image-pull-secret }}
+      run: |
+        set -euo pipefail
+        # Both the namespace and the pull secret are provisioned out of band, so CI
+        # needs no create RBAC. Checking here turns a missing prerequisite into a
+        # one-line error instead of an ImagePullBackOff discovered after --atomic
+        # has already rolled the release back and deleted the evidence.
+        if ! kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
+          echo "::error::namespace $NAMESPACE does not exist. Create it and its RBAC first:"
+          echo "  kubectl create namespace $NAMESPACE"
+          echo "  # then add $NAMESPACE to infra-helm/github-actions-rbac-per-ns values and apply"
+          exit 1
+        fi
+
+        if [ -z "$PULL_SECRET" ]; then
+          echo "::warning::IMAGE_PULL_SECRET_NAME is not set; pods may fail with ImagePullBackOff"
+        elif ! kubectl get secret "$PULL_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
+          echo "::error::pull secret '$PULL_SECRET' missing in namespace $NAMESPACE. Sync it:"
+          echo "  terraform/infra-terraform/scripts/sync-registry-to-k8s.sh --env <env> --user all --namespace $NAMESPACE"
+          exit 1
+        fi
+        echo "preflight ok: namespace $NAMESPACE, pull secret ${PULL_SECRET:-<none>}"
+
+    - name: Unstick a pending release
+      shell: bash
+      env:
+        RELEASE: ${{ inputs.release }}
+        NAMESPACE: ${{ inputs.namespace }}
+      run: |
+        set -euo pipefail
+        # A run cancelled mid-upgrade leaves the release holding the lock. Every
+        # later deploy then fails with "another operation is in progress" until
+        # someone intervenes by hand.
+        status=$(helm status "$RELEASE" -n "$NAMESPACE" -o json 2>/dev/null \
+                 | jq -r '.info.status // empty' || true)
+        case "$status" in
+          pending-upgrade|pending-install|pending-rollback)
+            echo "::warning::release stuck in $status — rolling back before deploying"
+            helm rollback "$RELEASE" -n "$NAMESPACE" || true
+            ;;
+          *)
+            echo "release status: ${status:-not installed}"
+            ;;
+        esac
+
+    - name: Diff against the live release
+      shell: bash
+      env:
+        RELEASE: ${{ inputs.release }}
+        NAMESPACE: ${{ inputs.namespace }}
+        CHART: ${{ steps.resolve.outputs.chart }}
+        VALUES_ARGS: ${{ steps.resolve.outputs.args }}
+      run: |
+        set -euo pipefail
+        # --suppress-secrets is not optional on a chart that renders a Secret:
+        # GitHub masks the literal secret value but not the base64 the chart
+        # encodes it into, so without this the diff prints every secret.
+        # shellcheck disable=SC2086
+        helm diff upgrade "$RELEASE" "$CHART" \
+          --namespace "$NAMESPACE" \
+          --allow-unreleased \
+          --suppress-secrets \
+          --context 5 \
+          $VALUES_ARGS | tee /tmp/helm-diff.txt
+
+        {
+          echo "### Helm diff — $RELEASE ($NAMESPACE)"
+          echo '```diff'
+          cat /tmp/helm-diff.txt
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Deploy
+      id: deploy
+      if: inputs.dry-run != 'true'
+      shell: bash
+      env:
+        RELEASE: ${{ inputs.release }}
+        NAMESPACE: ${{ inputs.namespace }}
+        CHART: ${{ steps.resolve.outputs.chart }}
+        VALUES_ARGS: ${{ steps.resolve.outputs.args }}
+        TIMEOUT: ${{ inputs.timeout }}
+        HISTORY_MAX: ${{ inputs.history-max }}
+        ATOMIC: ${{ inputs.atomic }}
+      run: |
+        set -euo pipefail
+        # An `if`, not `[ ... ] && atomic=...`. The AND-list form returns 1 when the
+        # test is false, which is harmless mid-script but fails the whole step if it
+        # ever ends up as the last line — a trap that only appears when someone
+        # reorders these commands later.
+        atomic=""
+        # shellcheck disable=SC2153  # ATOMIC is an action input, injected via env:
+        if [ "$ATOMIC" = "true" ]; then
+          atomic="--atomic"
+        fi
+
+        # shellcheck disable=SC2086
+        helm upgrade --install "$RELEASE" "$CHART" \
+          --namespace "$NAMESPACE" \
+          --wait $atomic \
+          --timeout "$TIMEOUT" \
+          --history-max "$HISTORY_MAX" \
+          $VALUES_ARGS
+
+        rev=$(helm status "$RELEASE" -n "$NAMESPACE" -o json | jq -r '.version')
+        echo "revision=$rev" >> "$GITHUB_OUTPUT"
+        echo "deployed revision $rev"
+
+    - name: Verify rollout
+      if: inputs.dry-run != 'true'
+      shell: bash
+      env:
+        RELEASE: ${{ inputs.release }}
+        NAMESPACE: ${{ inputs.namespace }}
+        ROLLOUT_TIMEOUT: ${{ inputs.rollout-timeout }}
+      run: |
+        set -euo pipefail
+        # Largely redundant against --wait --atomic, but it prints the rollout
+        # state into the log, and it fails loudly if the Deployment's name ever
+        # stops matching the release name.
+        kubectl rollout status "deployment/$RELEASE" \
+          --namespace "$NAMESPACE" \
+          --timeout="$ROLLOUT_TIMEOUT"
+
+    - name: Report dry run
+      if: inputs.dry-run == 'true'
+      shell: bash
+      run: |
+        echo "::notice::dry-run — diff rendered above, no upgrade performed"

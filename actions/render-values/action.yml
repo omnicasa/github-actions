@@ -1,0 +1,79 @@
+name: Render Helm values
+description: Turn the GitHub Environment into the two values files helm consumes.
+
+inputs:
+  environment:
+    description: Resolved environment name (also the default registry repo prefix)
+    required: true
+  image-tag:
+    description: Image tag being deployed — always the commit SHA
+    required: true
+  vars-json:
+    description: '${{ toJSON(vars) }}'
+    required: true
+  secrets-json:
+    description: >-
+      ${{ toJSON(secrets) }}. Passed wholesale on purpose: the manifest allowlists
+      what the app actually gets, so adding a secret is one line in the app repo
+      and never a change here. Keys not on the allowlist — including github_token —
+      are ignored outright.
+    required: true
+  manifest-path:
+    description: Path to the deploy manifest in the caller repo
+    required: false
+    default: .github/deploy-manifest.yml
+  repository:
+    description: Override the computed <prefix>/<app> registry repository
+    required: false
+    default: ""
+  release-values-out:
+    description: Where to write the computed release values
+    required: false
+    default: /tmp/release-values.json
+  app-env-values-out:
+    description: Where to write the computed app env values
+    required: false
+    default: /tmp/app-env-values.json
+
+outputs:
+  app:
+    description: Helm release name and Deployment name
+    value: ${{ steps.render.outputs.app }}
+  namespace:
+    description: Target namespace
+    value: ${{ steps.render.outputs.namespace }}
+  repository:
+    description: Registry repository (<prefix>/<app>)
+    value: ${{ steps.render.outputs.repository }}
+  image:
+    description: Full image reference that will be deployed
+    value: ${{ steps.render.outputs.image }}
+  migration-enabled:
+    description: Whether the manifest enables the migration hook Job
+    value: ${{ steps.render.outputs.migration-enabled }}
+  release-values:
+    description: Path to the rendered release values file
+    value: ${{ steps.render.outputs.release-values }}
+  app-env-values:
+    description: Path to the rendered app env values file
+    value: ${{ steps.render.outputs.app-env-values }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install PyYAML
+      shell: bash
+      run: python3 -m pip install --quiet --disable-pip-version-check pyyaml
+
+    - id: render
+      shell: bash
+      env:
+        DEPLOY_MANIFEST: ${{ inputs.manifest-path }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        IMAGE_TAG: ${{ inputs.image-tag }}
+        REPOSITORY: ${{ inputs.repository }}
+        VARS_JSON: ${{ inputs.vars-json }}
+        SECRETS_JSON: ${{ inputs.secrets-json }}
+        RELEASE_VALUES_OUT: ${{ inputs.release-values-out }}
+        APP_ENV_VALUES_OUT: ${{ inputs.app-env-values-out }}
+      run: python3 "${{ github.action_path }}/render-values.py"

@@ -1,0 +1,207 @@
+---
+# Source: omnicasa-app/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: omnicasa-tools
+  labels:
+    helm.sh/chart: omnicasa-app-0.1.0
+    app.kubernetes.io/name: omnicasa-tools
+    app.kubernetes.io/instance: omnicasa-tools
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: false
+---
+# Source: omnicasa-app/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: omnicasa-tools-secrets
+  labels:
+    helm.sh/chart: omnicasa-app-0.1.0
+    app.kubernetes.io/name: omnicasa-tools
+    app.kubernetes.io/instance: omnicasa-tools
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  # GitHub masks the literal secret in the log but NOT this base64 form, which is
+  # why the workflow runs `helm diff` with --suppress-secrets.
+  AUTH_SECRET: "c2Vrcml0"
+  CRM_CUSTOMER_DATABASE_URL: "cG9zdGdyZXM6Ly94"
+  CUSTOMER_DB_HOST_MAP: "eyJhIjoiMS4yLjMuNCIsImIiOiI1LjYuNy44In0="
+  DATABASE_URL: "cG9zdGdyZXM6Ly91OnAsYSxzLHNAaC9kYg=="
+  OMNICASA_DATABASE_URL: "cG9zdGdyZXM6Ly95"
+  POSTMARK_API_KEY: "cG1r"
+---
+# Source: omnicasa-app/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: omnicasa-tools-config
+  labels:
+    helm.sh/chart: omnicasa-app-0.1.0
+    app.kubernetes.io/name: omnicasa-tools
+    app.kubernetes.io/instance: omnicasa-tools
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  # Values go through `quote`, never through a hand-written pair of double quotes:
+  # a value containing a double quote, a colon or a newline produces invalid YAML
+  # otherwise. ADMIN_EMAILS and any JSON-valued variable hit this. The Deployment
+  # checksums this rendered output, so a change here rolls the pods.
+  ADMIN_EMAILS: "a@b.com,c@d.com"
+  AUTH_TRUST_HOST: "true"
+  AUTH_URL: "https://tools.omnicasa.com"
+  CUSTOMER_DB_CONNECT_TIMEOUT_MS: "45000"
+  EMAIL_FROM: "noreply@omnicasa.com"
+  NODE_ENV: "production"
+  SMTP_HOST: "smtp.postmarkapp.com"
+  SMTP_PORT: "587"
+---
+# Source: omnicasa-app/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: omnicasa-tools
+  labels:
+    helm.sh/chart: omnicasa-app-0.1.0
+    app.kubernetes.io/name: omnicasa-tools
+    app.kubernetes.io/instance: omnicasa-tools
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: omnicasa-tools
+    app.kubernetes.io/instance: omnicasa-tools
+---
+# Source: omnicasa-app/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # Fixed to the release name so `kubectl rollout status deployment/$APP_NAME`
+  # in the workflow always resolves. Do not switch this to chart.fullname
+  # without updating the workflow's rollout-status and diagnostics steps.
+  name: omnicasa-tools
+  labels:
+    helm.sh/chart: omnicasa-app-0.1.0
+    app.kubernetes.io/name: omnicasa-tools
+    app.kubernetes.io/instance: omnicasa-tools
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  revisionHistoryLimit: 5
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: omnicasa-tools
+      app.kubernetes.io/instance: omnicasa-tools
+  template:
+    metadata:
+      annotations:
+        # Roll the pods when only the env values change (same image tag) —
+        # otherwise a config-only deploy is a no-op the pods never see.
+        checksum/config: e9c392303125eff06f1d109e08b9a911ca0eb05c4eb1097971063f37a411365c
+        checksum/secret: 60a62cd311b0367cbf7be29cf999f3a7b66250611707d302a3708872edbca88d
+      labels:
+        app.kubernetes.io/name: omnicasa-tools
+        app.kubernetes.io/instance: omnicasa-tools
+    spec:
+      # Pre-created in the namespace by an operator; the workflow only passes
+      # the name through from vars.IMAGE_PULL_SECRET_NAME.
+      imagePullSecrets:
+        - name: ovh-registry-secret
+      # Internal hosts (SQL, Graylog) the pods must resolve. Identical across
+      # environments, so they live in the app's values file, not the workflow.
+      serviceAccountName: omnicasa-tools
+      securityContext:
+        {}
+      containers:
+        # Named after the app, not the chart: with one shared chart .Chart.Name
+        # would rename the container in every release, which churns the pod spec
+        # and breaks any `kubectl logs -c <name>` muscle memory.
+        - name: omnicasa-tools
+          securityContext:
+            {}
+          image: "reg.example.ovh.net/production/omnicasa-tools:abc123def456"
+          imagePullPolicy: IfNotPresent
+          # Both are rendered from config.env.* by the workflow's render step.
+          envFrom:
+            - configMapRef:
+                name: omnicasa-tools-config
+            - secretRef:
+                name: omnicasa-tools-secrets
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          # `helm upgrade --atomic --wait` only knows the deploy succeeded if
+          # the pods report ready, so a readinessProbe that reflects real health
+          # is what makes the automatic rollback trustworthy. Set to {} to disable.
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+---
+# Source: omnicasa-app/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: omnicasa-tools
+  labels:
+    helm.sh/chart: omnicasa-app-0.1.0
+    app.kubernetes.io/name: omnicasa-tools
+    app.kubernetes.io/instance: omnicasa-tools
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+  # Merged, not replaced: the workflow adds the external-dns hostname annotation
+  # from the manifest's domainVar on top of whatever the app sets here.
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+    external-dns.alpha.kubernetes.io/hostname: tools.omnicasa.com
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+      - tools.omnicasa.com
+      secretName: omnicasa-tools-tls
+  rules:
+    - host: "tools.omnicasa.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: omnicasa-tools
+                port:
+                  number: 80

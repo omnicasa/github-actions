@@ -1,0 +1,36 @@
+# Copy to .github/workflows/rollback.yml in every app repo.
+#
+# Worth having even if it is never used: during an incident the alternative is
+# someone finding a kubeconfig and running helm by hand, with no audit trail and
+# no environment protection rules.
+#
+# Find the revision first:  helm history <app> -n <namespace> --max 10
+# Leave it blank to go back one revision.
+
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to roll back"
+        type: choice
+        options:
+          - production
+        required: true
+      revision:
+        description: "Helm revision (blank = previous)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    uses: omnicasa/github-actions/.github/workflows/rollback.yml@v1.0.0
+    with:
+      environment: ${{ inputs.environment }}
+      revision: ${{ inputs.revision }}
+    secrets: inherit

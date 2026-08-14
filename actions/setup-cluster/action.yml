@@ -1,0 +1,86 @@
+name: Setup cluster tooling
+description: Install pinned helm, kubectl and helm-diff, then write the kubeconfig.
+
+inputs:
+  kubeconfig-base64:
+    description: secrets.KUBECONFIG_BASE64 — base64 of the deploy kubeconfig
+    required: true
+  kubeconfig-path:
+    description: Where to write the decoded kubeconfig
+    required: false
+    default: /tmp/kubeconfig
+  helm-version:
+    description: >-
+      Pinned deliberately. setup-helm's default resolves to the latest release, which
+      became Helm 4 — it applies server-side and deprecated --atomic, so the deploy
+      pipeline silently loses its automatic rollback. Bump only together with those flags.
+    required: false
+    default: v3.19.0
+  kubectl-version:
+    description: Pinned kubectl version
+    required: false
+    default: v1.31.0
+  helm-diff-version:
+    description: >-
+      helm-diff plugin version. Keep below v3.15.x only while the chart is a local path;
+      OCI chart refs need v3.15.9 or newer.
+    required: false
+    default: v3.9.13
+
+outputs:
+  kubeconfig:
+    description: Path to the decoded kubeconfig
+    value: ${{ inputs.kubeconfig-path }}
+
+runs:
+  using: composite
+  steps:
+    # Tag-pinned, matching the refs already proven in Omnicasa-Oauth2-Consent-App.
+    # TODO: Dependabot's first PR will replace these with SHAs; take it.
+    - uses: azure/setup-helm@v4.2.0
+      with:
+        version: ${{ inputs.helm-version }}
+
+    - uses: azure/setup-kubectl@v4
+      with:
+        version: ${{ inputs.kubectl-version }}
+
+    - name: Install helm-diff
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Idempotent: the plugin persists on a warm runner image.
+        if helm plugin list | grep -q '^diff'; then
+          echo "helm-diff already installed"
+        else
+          helm plugin install https://github.com/databus23/helm-diff \
+            --version "${{ inputs.helm-diff-version }}"
+        fi
+
+    - name: Write kubeconfig
+      shell: bash
+      env:
+        KUBECONFIG_B64: ${{ inputs.kubeconfig-base64 }}
+      run: |
+        set -euo pipefail
+        # Quoted. Unquoted, the shell collapses the base64's whitespace and the
+        # decoded file is an unparseable kubeconfig — which surfaces as a confusing
+        # authentication error rather than a decode error.
+        printf '%s' "$KUBECONFIG_B64" | base64 -d > "${{ inputs.kubeconfig-path }}"
+        chmod 600 "${{ inputs.kubeconfig-path }}"
+
+        # Exported at job scope so every later step (and the helm-deploy action)
+        # sees it without repeating the path. Note this is the FILE PATH; the
+        # base64 blob lives in secrets.KUBECONFIG_BASE64. Conflating the two is
+        # how the older repos ended up passing a kubeconfig where a path was expected.
+        echo "KUBECONFIG=${{ inputs.kubeconfig-path }}" >> "$GITHUB_ENV"
+
+    - name: Verify toolchain
+      shell: bash
+      run: |
+        set -euo pipefail
+        helm version --short
+        kubectl version --client
+        # Deliberately no connectivity check here: the runner's IP is not on the OVH
+        # allowlist until the ovh-ip-allowlist step runs, which is after this one.
+        # helm-deploy's preflight makes the first API call.

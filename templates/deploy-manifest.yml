@@ -1,0 +1,87 @@
+# Deploy manifest — the single source of truth for what this app's release needs.
+#
+# Read by the render-values action during deploy. The workflow hands it the entire
+# GitHub `vars` and `secrets` contexts; this file decides which of them the app
+# actually gets and where each one lands. Adding a tunable is one line here plus
+# the value in the GitHub Environment.
+#
+# Validate before opening a PR:
+#   python3 scripts/validate-manifest.py .github/deploy-manifest.yml
+
+# Helm release name, the Deployment's name, and the registry repo suffix. These are
+# the same string on purpose: `kubectl rollout status deployment/<app>` depends on it.
+app: my-app
+
+# Pre-created out of band. CI verifies it exists and never creates it, so the deploy
+# credentials need no namespace-write RBAC.
+namespace: my-app
+
+# Informational, so the next person knows why the pipeline looks the way it does.
+build: dockerfile
+workingDirectory: .
+
+# The one variable that owns the app's public hostname. It drives the ingress host,
+# the TLS certificate and the external-dns record together, so they cannot drift
+# apart. Leave blank if this app has no ingress.
+domainVar: APP_DOMAIN
+
+# Name of the TLS Secret. Omit for the default <app>-tls-certificates.
+#
+# SET THIS when migrating an app that already has a certificate under a different
+# name: pointing at a new name makes cert-manager issue a fresh certificate during
+# the cutover, with a window of TLS errors and a Let's Encrypt rate limit to worry about.
+# tlsSecretName: my-app-tls
+
+ingress:
+  # false = the renderer emits no ingress values at all and deploy/values.yaml owns
+  # the whole Ingress. For apps with multiple hosts or non-root paths.
+  managed: true
+
+# Hard-fail the deploy if any of these are unset for the target environment. Use it
+# for values whose absence produces a running-but-broken release: the ingress host,
+# a connection string the app crash-loops without, a session-signing secret.
+# Everything not listed is optional — unset means "omit, let the app use its own
+# default", which is only correct if the app really has one.
+required:
+  - APP_DOMAIN
+
+env:
+  # -> ConfigMap. Visible in the job log and the repo settings UI, which also makes
+  # this the audit trail for how the app is configured. Store in `vars.*`.
+  variables: []
+  # - NODE_ENV
+  # - GRAYLOG_HOST
+  # - GRAYLOG_PORT
+
+  # -> Secret. Masked in the log. Store in `secrets.*`.
+  # A name listed here but stored as a var gets a warning: the value reaches the
+  # cluster as a Secret while being readable in plain text everywhere else.
+  secrets: []
+  # - DATABASE_URL
+  # - SESSION_SECRET
+
+  # Computed from the values above, so one fact has one source. `${NAME}` references
+  # any variable or secret resolved for this environment. These land on the variables
+  # (ConfigMap) side, so building one out of a secret is a hard error.
+  derived: {}
+  # APP_PUBLIC_URL: "https://${APP_DOMAIN}"
+
+# Schema migrations as a Helm pre-upgrade hook Job. Read the chart's
+# templates/migration-job.yaml before enabling: --atomic rolls back the release,
+# not the database, so migrations must be additive for one release.
+migration:
+  enabled: false
+  # command:
+  #   - npx
+  #   - prisma
+  #   - migrate
+  #   - deploy
+
+# Per-environment deviations. Only app, namespace, repositoryPrefix and tlsSecretName
+# may be overridden — deliberately narrow, so an environment can never quietly
+# diverge in its env-var allowlist.
+environments: {}
+# development:
+#   app: my-app-dev
+#   namespace: my-app-dev
+#   repositoryPrefix: staging

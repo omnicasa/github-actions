@@ -1,0 +1,93 @@
+{{- if .Values.migration.enabled }}
+# Schema migrations, run as a Helm hook BEFORE the new pods start.
+#
+# Deliberately a hook rather than a `kubectl exec` into a running pod: exec picks
+# an arbitrary pod (possibly one that is terminating), has no retry semantics and
+# leaves no record. As a pre-upgrade hook this also runs before any new pod
+# starts, which is the only ordering that is actually safe.
+#
+# IMPORTANT: `helm upgrade --atomic` rolls back the RELEASE, not the DATABASE. A
+# migration that half-applies leaves the schema ahead of the rolled-back code.
+# Migrations must therefore be additive and backward-compatible for one release
+# (expand, deploy, contract). backoffLimit is 0 so a failure stops immediately
+# rather than retrying against a half-applied schema.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "chart.fullname" . }}-migrate
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": {{ .Values.migration.hookWeight | quote }}
+    # before-hook-creation, not hook-succeeded: keeps the last run's Job (and its
+    # logs) around until the next deploy needs the name.
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  {{- with .Values.migration.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "chart.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: {{ .Values.migration.restartPolicy }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "chart.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          # Defaults to the app image, so the migration runs against exactly the
+          # code being deployed. Override migration.image only if the app image
+          # genuinely cannot run the migration tool.
+          image: {{ .Values.migration.image.repository | default (include "chart.image" .) | quote }}
+          imagePullPolicy: {{ .Values.migration.image.pullPolicy | default .Values.image.pullPolicy }}
+          # Same ConfigMap and Secret as the app: a migration reading a different
+          # DATABASE_URL than the app is a failure mode worth designing out.
+          envFrom:
+            {{- include "chart.envFrom" . | nindent 12 }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.migration.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.migration.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

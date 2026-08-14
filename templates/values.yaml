@@ -1,0 +1,71 @@
+# Per-app chart overrides. Copy to deploy/values.yaml in the app repo.
+#
+# Layering, lowest priority first:
+#   1. the chart's own values.yaml            (in omnicasa/github-actions)
+#   2. THIS FILE                              every environment
+#   3. deploy/values.<environment>.yaml       one environment
+#   4. computed release values                image, ingress host/tls, pull secret
+#   5. computed app env values                config.env.variables / .secrets
+#
+# So: per-environment app config belongs in the GitHub Environment (it arrives via 5),
+# not here. This file is for how the chart is shaped — ports, probes, resources.
+#
+# Every key is documented in docs/chart-values.md.
+
+replicaCount: 1
+
+service:
+  # The port the app actually listens on. The probes below resolve through the
+  # named `http` port, so setting this is enough.
+  containerPort: 3000
+  port: 80
+
+ingress:
+  enabled: true
+  className: haproxy
+  # Merged with the chart's cert-manager annotation and the computed external-dns one.
+  # Anything that changes request handling is NOT defaulted by the chart — declare it here.
+  annotations: {}
+  # haproxy.org/ssl-redirect: "true"
+  # haproxy.org/ssl-redirect-port: "443"
+  # external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+
+# `helm upgrade --atomic --wait` judges success by pod readiness, so point these at
+# an endpoint that fails when the app's dependencies are unreachable. A probe that
+# only proves the process is up makes --atomic useless.
+#
+# NOTE: probe maps MERGE with the chart defaults rather than replacing them. If you
+# care about a field the chart also sets (failureThreshold), state it explicitly.
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+
+# On a single-replica Deployment a PDB blocks node drains outright.
+podDisruptionBudget:
+  enabled: false
+
+# Internal hosts this app talks to. List only what it needs.
+hostAliases: []
+# - ip: "10.100.1.5"
+#   hostnames:
+#     - graylog.omnicasadev.local

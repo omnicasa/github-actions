@@ -1,0 +1,11 @@
+{{- /*
+Raw-YAML escape hatch, so an app that needs one unusual object (a NetworkPolicy,
+a ServiceMonitor, a second Service) never has to fork the chart. Entries are
+templated, so `{{ .Release.Name }}` and friends work inside them.
+
+Use sparingly: anything that shows up here twice belongs in a real template.
+*/ -}}
+{{- range .Values.extraManifests }}
+---
+{{ tpl (toYaml .) $ }}
+{{- end }}

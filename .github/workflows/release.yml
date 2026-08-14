@@ -1,0 +1,68 @@
+name: Release
+
+# Moves the floating major tag (v1) to an annotated vX.Y.Z, and publishes release notes.
+#
+# Consumers are told to pin exact tags; v1 exists for anyone who explicitly opts into
+# unreviewed updates. Because moving it changes what every such consumer runs on their
+# next deploy, only this workflow moves it — never a human, never a force-push.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)publish, e.g. v1.0.0"
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: version
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::$tag is not vX.Y.Z"; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "major=${tag%%.*}" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to release an unrecorded change
+        run: |
+          set -euo pipefail
+          # A consumer deciding whether to bump reads CHANGELOG.md. A release absent
+          # from it gives them nothing to decide with.
+          grep -q "${{ steps.version.outputs.tag }}" CHANGELOG.md \
+            || { echo "::error::CHANGELOG.md has no entry for ${{ steps.version.outputs.tag }}"; exit 1; }
+
+      - name: Move the floating major tag
+        run: |
+          set -euo pipefail
+          major="${{ steps.version.outputs.major }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f -a "$major" -m "Track ${{ steps.version.outputs.tag }}"
+          git push -f origin "$major"
+          echo "::notice::$major now points at ${{ steps.version.outputs.tag }}"
+
+      - name: Publish release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            || gh release edit "${{ steps.version.outputs.tag }}" --title "${{ steps.version.outputs.tag }}"

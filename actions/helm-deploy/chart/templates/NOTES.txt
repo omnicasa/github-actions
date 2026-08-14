@@ -1,0 +1,27 @@
+{{ .Release.Name }} deployed to namespace {{ .Release.Namespace }} (revision {{ .Release.Revision }}).
+
+Image:   {{ include "chart.image" . }}
+Config:  {{ len .Values.config.env.variables }} variables, {{ len .Values.config.env.secrets }} secrets
+{{- if .Values.migration.enabled }}
+Migrate: pre-upgrade hook Job enabled ({{ join " " .Values.migration.command }})
+{{- end }}
+{{- if .Values.ingress.enabled }}
+
+URLs:
+{{- range .Values.ingress.hosts }}
+{{- $host := .host }}
+{{- range .paths }}
+  https://{{ $host }}{{ .path }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+Check it:
+  kubectl rollout status deployment/{{ .Release.Name }} -n {{ .Release.Namespace }}
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+If it went wrong:
+  helm history {{ .Release.Name }} -n {{ .Release.Namespace }} --max 10
+  helm rollback {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+or run the repo's "Rollback" workflow, which does the same with a form and an audit trail.

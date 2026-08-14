@@ -1,0 +1,40 @@
+# Copy to .github/workflows/deploy.yml in a two-branch app repo.
+#
+# Current Omnicasa convention: main -> production, develop -> staging. Renaming
+# branches to match the environment names is a separate migration; until then the
+# mapping lives in the one expression below.
+#
+# Repos whose branches are already called `staging` and `production` can simplify
+# to `environment: ${{ github.ref_name }}`.
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        type: choice
+        options:
+          - staging
+          - production
+        required: true
+      dry-run:
+        description: "Render and diff against the live release, do not upgrade"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    uses: omnicasa/github-actions/.github/workflows/deploy.yml@v1.0.0
+    with:
+      environment: ${{ inputs.environment || (github.ref_name == 'main' && 'production' || 'staging') }}
+      dry-run: ${{ inputs.dry-run == true }}
+    secrets: inherit

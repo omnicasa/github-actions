@@ -1,0 +1,73 @@
+name: OVH IP allowlist
+description: Add or remove the runner's public IP on the OVH managed-Kubernetes API allowlist.
+
+# Composite actions cannot read the `secrets` context, so every credential arrives
+# as an input. Values passed via `with:` from `${{ secrets.* }}` stay masked in the log.
+
+inputs:
+  action:
+    description: add | remove
+    required: true
+  project-id:
+    description: vars.OVH_PROJECT_ID
+    required: true
+  kubernetes-id:
+    description: vars.OVH_KUBERNETES_ID
+    required: true
+  application-key:
+    description: secrets.OVH_GA_APPLICATION_KEY
+    required: true
+  application-secret:
+    description: secrets.OVH_GA_APPLICATION_SECRET
+    required: true
+  consumer-key:
+    description: secrets.OVH_GA_CONSUMER_KEY
+    required: true
+  ip:
+    description: >-
+      IP to act on. Leave blank on add; pass the add step's `ip` output on remove so the
+      same entry is deleted even if the runner's egress address rotated mid-job.
+    required: false
+    default: ""
+  retries:
+    description: Attempts before giving up
+    required: false
+    default: "3"
+  fail-on-error:
+    description: >-
+      true fails the step on an API error. Use true for add — a silent failure there
+      surfaces ten minutes later as an opaque kubectl timeout. Use false for remove,
+      which runs under `if: always()` and must not mask the real deploy error.
+    required: false
+    default: "true"
+  api-url:
+    description: OVH API base URL
+    required: false
+    default: https://api.ovh.com/1.0
+
+outputs:
+  ip:
+    description: The IP that was added or removed
+    value: ${{ steps.run.outputs.ip }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        OVH_PROJECT_ID: ${{ inputs.project-id }}
+        OVH_KUBERNETES_ID: ${{ inputs.kubernetes-id }}
+        OVH_GA_APPLICATION_KEY: ${{ inputs.application-key }}
+        OVH_GA_APPLICATION_SECRET: ${{ inputs.application-secret }}
+        OVH_GA_CONSUMER_KEY: ${{ inputs.consumer-key }}
+        OVH_API_URL: ${{ inputs.api-url }}
+        RETRIES: ${{ inputs.retries }}
+        FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+      run: |
+        set -euo pipefail
+        # The script prints the IP on stdout and everything else on stderr,
+        # so this capture stays clean.
+        ip=$(sh "${{ github.action_path }}/ovh-ip-restriction.sh" \
+               "${{ inputs.action }}" "${{ inputs.ip }}")
+        echo "ip=${ip}" >> "$GITHUB_OUTPUT"

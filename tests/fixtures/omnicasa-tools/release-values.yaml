@@ -1,0 +1,47 @@
+# Stands in for /tmp/release-values.json + /tmp/app-env-values.json, which the deploy
+# workflow renders from the GitHub Environment. Frozen here so `helm template` is
+# deterministic in CI and the golden file means something.
+#
+# The values are fake but shaped like the real ones. DATABASE_URL deliberately contains
+# commas and CUSTOMER_DB_HOST_MAP is JSON: both would corrupt a release if anything ever
+# went back to passing app config through `helm --set`.
+
+image:
+  registry: reg.example.ovh.net
+  repository: production/omnicasa-tools
+  tag: abc123def456
+
+imagePullSecrets:
+  - name: ovh-registry-secret
+
+ingress:
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: tools.omnicasa.com
+  hosts:
+    - host: tools.omnicasa.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: omnicasa-tools-tls
+      hosts:
+        - tools.omnicasa.com
+
+config:
+  env:
+    variables:
+      NODE_ENV: production
+      SMTP_PORT: "587"
+      AUTH_TRUST_HOST: "true"
+      SMTP_HOST: smtp.postmarkapp.com
+      EMAIL_FROM: noreply@omnicasa.com
+      ADMIN_EMAILS: "a@b.com,c@d.com"
+      CUSTOMER_DB_CONNECT_TIMEOUT_MS: "45000"
+      AUTH_URL: https://tools.omnicasa.com
+    secrets:
+      DATABASE_URL: "postgres://u:p,a,s,s@h/db"
+      AUTH_SECRET: sekrit
+      CRM_CUSTOMER_DATABASE_URL: postgres://x
+      OMNICASA_DATABASE_URL: postgres://y
+      CUSTOMER_DB_HOST_MAP: '{"a":"1.2.3.4","b":"5.6.7.8"}'
+      POSTMARK_API_KEY: pmk

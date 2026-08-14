@@ -1,0 +1,47 @@
+name: Kubernetes diagnostics
+description: Dump pods, events, describes and logs after a failed deploy.
+
+# Always run this under `if: failure()`. helm upgrade --atomic rolls back before the
+# job ends and takes the failed ReplicaSet, its pods and their logs with it, so this
+# is the only chance to capture why the deploy failed.
+
+inputs:
+  namespace:
+    description: Namespace to inspect
+    required: true
+  release:
+    description: Helm release name
+    required: true
+  event-lines:
+    description: How many recent events to print
+    required: false
+    default: "40"
+  log-lines:
+    description: How many log lines per container
+    required: false
+    default: "200"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        RELEASE: ${{ inputs.release }}
+        EVENT_LINES: ${{ inputs.event-lines }}
+        LOG_LINES: ${{ inputs.log-lines }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -uo pipefail
+        out=/tmp/k8s-diagnostics.txt
+        bash "$ACTION_PATH/diagnostics.sh" \
+          "$NAMESPACE" "$RELEASE" "$EVENT_LINES" "$LOG_LINES" 2>&1 | tee "$out"
+
+        # Also into the job summary: during an incident nobody wants to expand
+        # a 400-line log group to find the events.
+        {
+          echo "### Deploy failed — diagnostics for $RELEASE ($NAMESPACE)"
+          echo '```'
+          tail -c 60000 "$out"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"

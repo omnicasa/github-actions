@@ -1,0 +1,55 @@
+# Fixture mirroring omnicasa-tools' deploy/values.yaml.
+#
+# Kept in sync with the real file so CI's golden-template test catches a chart
+# change that would alter the running release. Every number here was copied from
+# omnicasa-tools/k8s/helm/omnicasa-tools/values.yaml.
+
+replicaCount: 2
+
+service:
+  containerPort: 3000
+  port: 80
+
+ingress:
+  enabled: true
+  className: haproxy
+  annotations:
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+    cert-manager.io/cluster-issuer: letsencrypt
+
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  # Explicit because probe maps MERGE with the chart defaults: without this the
+  # chart's failureThreshold of 6 would apply, where the old chart relied on the
+  # Kubernetes default of 3. Same restart behaviour as before the migration.
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 3
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+# Enabled in a follow-up PR, once the Dockerfile's runner stage ships the prisma CLI.
+migration:
+  enabled: false

@@ -1,0 +1,38 @@
+{{- if .Values.autoscaling.enabled }}
+# A KEDA ScaledObject, not an autoscaling/v2 HorizontalPodAutoscaler. A plain HPA
+# applies cleanly against this cluster and then does nothing, which is the worst
+# kind of failure: green deploy, no autoscaling.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "chart.fullname" . }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+spec:
+  # Must match the Deployment's metadata.name exactly, or KEDA silently scales
+  # nothing. deployment.yaml uses .Release.Name — keep the two in step.
+  scaleTargetRef:
+    name: {{ .Release.Name }}
+  minReplicaCount: {{ .Values.autoscaling.minReplicas }}
+  maxReplicaCount: {{ .Values.autoscaling.maxReplicas }}
+  {{- with .Values.autoscaling.advanced }}
+  advanced:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  triggers:
+    {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ .Values.autoscaling.targetCPUUtilizationPercentage | toString | quote }}
+    {{- end }}
+    {{- if .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: {{ .Values.autoscaling.targetMemoryUtilizationPercentage | toString | quote }}
+    {{- end }}
+    {{- with .Values.autoscaling.triggers }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

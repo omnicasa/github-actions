@@ -1,0 +1,117 @@
+name: Rollback (reusable)
+
+# Rollback is its own workflow, not a flag on the deploy. During an incident you want
+# a form with two fields — which environment, which revision — not a rerun of a
+# pipeline that would rebuild an image you have just decided not to trust.
+#
+# It shares the deploy workflow's concurrency group on purpose, so a rollback and a
+# deploy can never touch the same release at once.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub Environment holding the release
+        type: string
+        required: true
+      revision:
+        description: Helm revision to roll back to. Blank means the previous one.
+        type: string
+        required: false
+        default: ""
+      manifest-path:
+        type: string
+        required: false
+        default: .github/deploy-manifest.yml
+      runs-on:
+        type: string
+        required: false
+        default: ubuntu-latest
+      timeout:
+        type: string
+        required: false
+        default: 10m
+
+    outputs:
+      revision:
+        description: Helm revision after the rollback
+        value: ${{ jobs.rollback.outputs.revision }}
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    name: Rollback
+    runs-on: ${{ inputs.runs-on }}
+    environment: ${{ inputs.environment }}
+    concurrency:
+      # IDENTICAL to the deploy workflow's group. If these two ever diverge, a
+      # rollback and a deploy can run against the same release simultaneously.
+      group: ${{ github.repository }}-${{ inputs.environment }}
+      cancel-in-progress: false
+    outputs:
+      revision: ${{ steps.rollback.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup cluster tooling
+        uses: omnicasa/github-actions/actions/setup-cluster@v1
+        with:
+          kubeconfig-base64: ${{ secrets.KUBECONFIG_BASE64 }}
+
+      - name: Authorise runner IP
+        id: allowlist
+        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
+        with:
+          action: add
+          project-id: ${{ vars.OVH_PROJECT_ID }}
+          kubernetes-id: ${{ vars.OVH_KUBERNETES_ID }}
+          application-key: ${{ secrets.OVH_GA_APPLICATION_KEY }}
+          application-secret: ${{ secrets.OVH_GA_APPLICATION_SECRET }}
+          consumer-key: ${{ secrets.OVH_GA_CONSUMER_KEY }}
+
+      - name: Read app and namespace from the manifest
+        id: manifest
+        env:
+          MANIFEST: ${{ inputs.manifest-path }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check pyyaml
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, yaml
+          m = yaml.safe_load(open(os.environ["MANIFEST"])) or {}
+          m.update((m.get("environments") or {}).get(os.environ["ENVIRONMENT"]) or {})
+          print(f"app={m['app']}")
+          print(f"namespace={m['namespace']}")
+          PY
+
+      - name: Roll back
+        id: rollback
+        uses: omnicasa/github-actions/actions/helm-rollback@v1
+        with:
+          release: ${{ steps.manifest.outputs.app }}
+          namespace: ${{ steps.manifest.outputs.namespace }}
+          revision: ${{ inputs.revision }}
+          timeout: ${{ inputs.timeout }}
+
+      - name: Diagnostics
+        if: failure()
+        uses: omnicasa/github-actions/actions/k8s-diagnostics@v1
+        with:
+          namespace: ${{ steps.manifest.outputs.namespace }}
+          release: ${{ steps.manifest.outputs.app }}
+
+      - name: Remove runner IP
+        if: always()
+        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
+        with:
+          action: remove
+          ip: ${{ steps.allowlist.outputs.ip }}
+          project-id: ${{ vars.OVH_PROJECT_ID }}
+          kubernetes-id: ${{ vars.OVH_KUBERNETES_ID }}
+          application-key: ${{ secrets.OVH_GA_APPLICATION_KEY }}
+          application-secret: ${{ secrets.OVH_GA_APPLICATION_SECRET }}
+          consumer-key: ${{ secrets.OVH_GA_CONSUMER_KEY }}
+          fail-on-error: "false"

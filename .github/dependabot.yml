@@ -1,0 +1,29 @@
+version: 2
+
+# Third-party actions used inside this repo are SHA-pinned, so Dependabot is the only
+# thing that moves them. Our own actions and workflows are tag-pinned by consumers, and
+# Dependabot updates those refs in the consuming repos, not here.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+
+  # Composite actions are not covered by the root entry — each action directory is a
+  # separate manifest to Dependabot.
+  - package-ecosystem: github-actions
+    directories:
+      - /actions/setup-cluster
+      - /actions/ovh-ip-allowlist
+      - /actions/render-values
+      - /actions/helm-deploy
+      - /actions/helm-rollback
+      - /actions/k8s-diagnostics
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies

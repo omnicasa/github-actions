@@ -1,0 +1,44 @@
+# Fixture mirroring omnicasa-tools' .github/deploy-manifest.yml.
+# Kept in sync with the real file so CI exercises the renderer against a real shape.
+
+app: omnicasa-tools
+namespace: omnicasa-tools
+build: dockerfile
+workingDirectory: .
+
+domainVar: APP_DOMAIN
+# The live Secret is called omnicasa-tools-tls. Without this the renderer would
+# default to omnicasa-tools-tls-certificates and cert-manager would issue a new
+# certificate on cutover.
+tlsSecretName: omnicasa-tools-tls
+ingress:
+  managed: true
+
+required:
+  - APP_DOMAIN
+  - DATABASE_URL
+  - AUTH_SECRET
+
+env:
+  variables:
+    - NODE_ENV
+    - SMTP_HOST
+    - SMTP_PORT
+    - EMAIL_FROM
+    - ADMIN_EMAILS
+    - AUTH_TRUST_HOST
+    - CUSTOMER_DB_CONNECT_TIMEOUT_MS
+  secrets:
+    - DATABASE_URL
+    - AUTH_SECRET
+    - CRM_CUSTOMER_DATABASE_URL
+    - OMNICASA_DATABASE_URL
+    - CUSTOMER_DB_HOST_MAP
+    - POSTMARK_API_KEY
+  derived:
+    AUTH_URL: "https://${APP_DOMAIN}"
+
+migration:
+  enabled: false
+
+environments: {}

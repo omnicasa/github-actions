@@ -1,0 +1,12 @@
+apiVersion: v2
+name: omnicasa-app
+description: The unified Omnicasa application chart — one chart for every app repo.
+type: application
+
+# Bump when the templates change. This is the chart's own version, not any app's;
+# consumers get it via the tag they pin on omnicasa/github-actions.
+version: 0.1.0
+
+# Informational only. The running version is always the image tag, which is the
+# commit SHA of the deploying build.
+appVersion: "1.0.0"

@@ -1,0 +1,30 @@
+# Copy to .github/workflows/deploy.yml in a single-branch app repo (main -> production).
+#
+# Pin an exact tag. Dependabot raises a PR when a new one ships, so upgrades are
+# reviewed rather than inherited silently.
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Render and diff against the live release, do not upgrade"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    uses: omnicasa/github-actions/.github/workflows/deploy.yml@v1.0.0
+    with:
+      environment: production
+      dry-run: ${{ inputs.dry-run == true }}
+    # Passes the repo, org and environment secrets through. The called workflow
+    # declares `environment:`, which is what makes the environment's secrets resolve.
+    secrets: inherit

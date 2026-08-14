@@ -1,0 +1,6 @@
+*.tgz
+/tmp/
+*-values.json
+.DS_Store
+__pycache__/
+*.pyc

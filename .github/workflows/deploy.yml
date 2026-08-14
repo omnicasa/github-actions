@@ -1,0 +1,296 @@
+name: Deploy (reusable)
+
+# The shared build-and-deploy pipeline for every Omnicasa app repo.
+#
+# Callers keep ~19 lines: which branches trigger, which environment each maps to,
+# and `secrets: inherit`. Everything else lives in the caller's
+# .github/deploy-manifest.yml (what the app needs) and deploy/values.yaml (how the
+# chart is tuned), so app facts stay reviewable in the app's own PRs.
+#
+# See docs/onboarding.md before wiring a new repo.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: >-
+          GitHub Environment to deploy to, and the registry repository prefix.
+          Blank falls back to the branch name.
+        type: string
+        required: false
+        default: ""
+      dry-run:
+        description: Render and diff against the live release, then stop before upgrading.
+        type: boolean
+        required: false
+        default: false
+      manifest-path:
+        description: Path to the deploy manifest in the caller repo.
+        type: string
+        required: false
+        default: .github/deploy-manifest.yml
+      values-path:
+        description: Per-app chart overrides. Absent file is fine.
+        type: string
+        required: false
+        default: deploy/values.yaml
+      runs-on:
+        description: Runner label. Must be static — it is resolved before any step runs.
+        type: string
+        required: false
+        default: ubuntu-latest
+      image-tag:
+        description: Deploy an already-built tag instead of building. Blank means github.sha.
+        type: string
+        required: false
+        default: ""
+      build:
+        description: Build and push the image. false promotes an existing image.
+        type: boolean
+        required: false
+        default: true
+      build-context:
+        type: string
+        required: false
+        default: .
+      dockerfile:
+        type: string
+        required: false
+        default: Dockerfile
+      build-args:
+        description: >-
+          Multiline KEY=value passed to docker build. NON-SECRET ONLY — build args are
+          recorded in the image metadata and readable by anyone who can pull it.
+        type: string
+        required: false
+        default: ""
+      build-platforms:
+        type: string
+        required: false
+        default: linux/amd64
+      test-command:
+        description: >-
+          Shell command for the test job. Blank skips the job entirely — better than a
+          permanently green check, which trains everyone to ignore it.
+        type: string
+        required: false
+        default: ""
+      node-version:
+        description: Node version for the test job.
+        type: string
+        required: false
+        default: "22"
+      helm-timeout:
+        type: string
+        required: false
+        default: 10m
+      rollout-timeout:
+        type: string
+        required: false
+        default: 5m
+
+    # No `secrets:` block. Callers pass `secrets: inherit`, and the deploy job declares
+    # `environment:`, which is what makes that environment's secrets resolvable here.
+    # Declaring them would mean every app-specific secret needed a line in this file,
+    # which is exactly the coupling the manifest exists to remove.
+
+    outputs:
+      image:
+        description: Full image reference that was deployed
+        value: ${{ jobs.deploy.outputs.image }}
+      environment:
+        description: Resolved environment name
+        value: ${{ jobs.deploy.outputs.environment }}
+      app:
+        description: Helm release name
+        value: ${{ jobs.deploy.outputs.app }}
+      namespace:
+        description: Target namespace
+        value: ${{ jobs.deploy.outputs.namespace }}
+      revision:
+        description: Helm revision after the upgrade
+        value: ${{ jobs.deploy.outputs.revision }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test & lint
+    if: inputs.test-command != ''
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+
+      - run: npm ci
+      - run: ${{ inputs.test-command }}
+
+  build:
+    name: Build & push
+    needs:
+      - test
+    # `always()` so a SKIPPED test job (test-command blank) does not skip this one,
+    # while a FAILED test job still does.
+    if: ${{ inputs.build && always() && !failure() && !cancelled() }}
+    runs-on: ${{ inputs.runs-on }}
+    environment: ${{ inputs.environment || github.head_ref || github.ref_name }}
+    concurrency:
+      # Scoped to the repo: a bare per-environment group would serialise every
+      # Omnicasa repo's build against every other one.
+      group: build-${{ github.repository }}-${{ inputs.environment || github.head_ref || github.ref_name }}
+      cancel-in-progress: false
+    outputs:
+      image-tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: tag
+        run: echo "tag=${{ inputs.image-tag || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - id: repo
+        env:
+          MANIFEST: ${{ inputs.manifest-path }}
+          ENVIRONMENT: ${{ inputs.environment || github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check pyyaml
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, yaml
+          m = yaml.safe_load(open(os.environ["MANIFEST"])) or {}
+          env = os.environ["ENVIRONMENT"]
+          # environments.<env> may rename the app or move it to another registry
+          # prefix; the build must push where the deploy will look.
+          m.update((m.get("environments") or {}).get(env) or {})
+          prefix = str(m.get("repositoryPrefix") or env)
+          print(f"repository={prefix}/{m['app']}" if prefix else f"repository={m['app']}")
+          PY
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.OVH_REGISTRY }}
+          username: ${{ vars.OVH_REGISTRY_USERNAME }}
+          password: ${{ secrets.OVH_REGISTRY_PASSWORD }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          # Explicit, because the default context is the git ref — which ignores
+          # anything a previous step generated in the workspace.
+          context: ${{ inputs.build-context }}
+          file: ${{ inputs.build-context }}/${{ inputs.dockerfile }}
+          platforms: ${{ inputs.build-platforms }}
+          push: true
+          # One immutable SHA tag. No `latest`: a floating tag makes "what is
+          # running?" unanswerable and gives rollback no fixed target.
+          tags: ${{ vars.OVH_REGISTRY }}/${{ steps.repo.outputs.repository }}:${{ steps.tag.outputs.tag }}
+          build-args: ${{ inputs.build-args }}
+          # Cache lives with the repo, so there is no registry cache image to garbage-collect.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy
+    needs:
+      - build
+    # Runs when build succeeded OR was skipped (inputs.build false), never after a failure.
+    if: ${{ always() && !failure() && !cancelled() }}
+    runs-on: ${{ inputs.runs-on }}
+    # `environment:` and `concurrency:` cannot read the `env` context, so this
+    # expression is repeated inline rather than factored into a variable. Referencing
+    # `env` here fails silently — the job runs with no environment at all.
+    environment: ${{ inputs.environment || github.head_ref || github.ref_name }}
+    concurrency:
+      group: ${{ github.repository }}-${{ inputs.environment || github.head_ref || github.ref_name }}
+      # Never cancel a run mid-`helm upgrade`: it leaves the release in
+      # pending-upgrade AND leaves the runner's IP on the OVH allowlist.
+      # The rollback workflow uses this same group so the two cannot overlap.
+      cancel-in-progress: false
+    outputs:
+      image: ${{ steps.render.outputs.image }}
+      environment: ${{ inputs.environment || github.head_ref || github.ref_name }}
+      app: ${{ steps.render.outputs.app }}
+      namespace: ${{ steps.render.outputs.namespace }}
+      revision: ${{ steps.helm.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup cluster tooling
+        uses: omnicasa/github-actions/actions/setup-cluster@v1
+        with:
+          kubeconfig-base64: ${{ secrets.KUBECONFIG_BASE64 }}
+
+      - name: Authorise runner IP
+        id: allowlist
+        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
+        with:
+          action: add
+          project-id: ${{ vars.OVH_PROJECT_ID }}
+          kubernetes-id: ${{ vars.OVH_KUBERNETES_ID }}
+          application-key: ${{ secrets.OVH_GA_APPLICATION_KEY }}
+          application-secret: ${{ secrets.OVH_GA_APPLICATION_SECRET }}
+          consumer-key: ${{ secrets.OVH_GA_CONSUMER_KEY }}
+
+      - name: Render Helm values
+        id: render
+        uses: omnicasa/github-actions/actions/render-values@v1
+        with:
+          manifest-path: ${{ inputs.manifest-path }}
+          environment: ${{ inputs.environment || github.head_ref || github.ref_name }}
+          image-tag: ${{ needs.build.outputs.image-tag || inputs.image-tag || github.sha }}
+          # The manifest allowlists what the app actually receives; anything not
+          # listed there — github_token included — is dropped by the renderer.
+          vars-json: ${{ toJSON(vars) }}
+          secrets-json: ${{ toJSON(secrets) }}
+
+      - name: Deploy with Helm
+        id: helm
+        uses: omnicasa/github-actions/actions/helm-deploy@v1
+        with:
+          release: ${{ steps.render.outputs.app }}
+          namespace: ${{ steps.render.outputs.namespace }}
+          image-pull-secret: ${{ vars.IMAGE_PULL_SECRET_NAME }}
+          dry-run: ${{ inputs.dry-run }}
+          timeout: ${{ inputs.helm-timeout }}
+          rollout-timeout: ${{ inputs.rollout-timeout }}
+          # Order matters and must match what the diff used: per-app, then
+          # per-environment, then the computed files.
+          values-files: |
+            ${{ inputs.values-path }}
+            ${{ format('deploy/values.{0}.yaml', inputs.environment || github.head_ref || github.ref_name) }}
+            ${{ steps.render.outputs.release-values }}
+            ${{ steps.render.outputs.app-env-values }}
+
+      - name: Diagnostics
+        # The single highest-value step here: --atomic rolls back before the job
+        # ends and deletes the failed pods, events and logs.
+        if: failure()
+        uses: omnicasa/github-actions/actions/k8s-diagnostics@v1
+        with:
+          namespace: ${{ steps.render.outputs.namespace }}
+          release: ${{ steps.render.outputs.app }}
+
+      - name: Remove rendered values
+        if: always()
+        run: rm -f /tmp/release-values.json /tmp/app-env-values.json
+
+      - name: Remove runner IP
+        if: always()
+        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
+        with:
+          action: remove
+          # The IP the add step actually used, in case the runner's egress
+          # address rotated during the job.
+          ip: ${{ steps.allowlist.outputs.ip }}
+          project-id: ${{ vars.OVH_PROJECT_ID }}
+          kubernetes-id: ${{ vars.OVH_KUBERNETES_ID }}
+          application-key: ${{ secrets.OVH_GA_APPLICATION_KEY }}
+          application-secret: ${{ secrets.OVH_GA_APPLICATION_SECRET }}
+          consumer-key: ${{ secrets.OVH_GA_CONSUMER_KEY }}
+          # Must not mask the real deploy failure with an allowlist error.
+          fail-on-error: "false"

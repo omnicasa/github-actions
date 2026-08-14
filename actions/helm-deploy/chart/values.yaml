@@ -1,0 +1,230 @@
+# Defaults for the omnicasa-app chart.
+#
+# The deploy workflow layers files on top of this one, in this order:
+#
+#   1. this file                     chart defaults
+#   2. deploy/values.yaml            per-app, every environment   (app repo)
+#   3. deploy/values.<env>.yaml      per-app, this environment    (app repo)
+#   4. /tmp/release-values.json      computed: image, ingress host/tls, pull secret
+#   5. /tmp/app-env-values.json      computed: config.env.variables / config.env.secrets
+#
+# So: anything that differs per environment belongs in the GitHub Environment
+# (and reaches the chart via 4 and 5). Anything identical across environments but
+# specific to one app belongs in 2. Only genuinely universal defaults belong here.
+
+replicaCount: 1
+
+# How many old ReplicaSets to keep. Enough to see what changed, not enough to clutter.
+revisionHistoryLimit: 5
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 25%
+    maxSurge: 25%
+
+image:
+  # Set per environment by the workflow. The defaults exist only so
+  # `helm template` works locally without a registry.
+  registry: ""
+  repository: app
+  # Safe because the workflow always deploys an immutable commit-SHA tag.
+  pullPolicy: IfNotPresent
+  tag: latest
+
+# Filled from the GitHub Environment by render-values.py.
+# variables -> ConfigMap, secrets -> Secret; both are mounted with envFrom.
+config:
+  env:
+    variables: {}
+    secrets: {}
+
+# Raw EnvVar entries for the rare value that cannot come from the Environment —
+# a fieldRef, a resourceFieldRef, or a key from a Secret this chart does not own.
+extraEnv: []
+# - name: POD_IP
+#   valueFrom:
+#     fieldRef:
+#       fieldPath: status.podIP
+
+# Extra configMapRef / secretRef entries appended after the chart's own two.
+extraEnvFrom: []
+
+# Pre-created in the namespace by an operator. The workflow passes the name
+# through from vars.IMAGE_PULL_SECRET_NAME; the chart never creates it.
+imagePullSecrets: []
+
+# Leave both empty. nameOverride changes app.kubernetes.io/name, which is part of
+# the IMMUTABLE Deployment selector — setting it on an existing release breaks
+# every subsequent upgrade.
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+  automountServiceAccountToken: false
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext: {}
+securityContext: {}
+
+priorityClassName: ""
+terminationGracePeriodSeconds: null
+
+service:
+  type: ClusterIP
+  # The port the app listens on inside the container. Set this to the real one —
+  # the probes below resolve through the named `http` port, so they follow it.
+  containerPort: 3000
+  # The ingress fronts the app; the Service only needs in-cluster reachability.
+  port: 80
+  annotations: {}
+  # Additional containerPorts on the pod.
+  extraPorts: []
+  # Additional ports on the Service.
+  extraServicePorts: []
+
+ingress:
+  enabled: true
+  className: haproxy
+  # Only the cluster-issuer is defaulted: every app needs a certificate, and the
+  # annotation is inert if cert-manager is absent.
+  #
+  # Anything that changes how requests are HANDLED is deliberately NOT defaulted —
+  # annotations merge across values files, so a default here silently applies to
+  # every app that adopts the chart. haproxy.org/ssl-redirect in particular can
+  # produce a redirect loop behind a Cloudflare zone set to Flexible SSL. Apps
+  # that want it declare it themselves:
+  #
+  #   ingress:
+  #     annotations:
+  #       haproxy.org/ssl-redirect: "true"
+  #       haproxy.org/ssl-redirect-port: "443"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  # host / tls / the external-dns annotation are set per environment by the
+  # workflow from the manifest's domainVar. These are placeholders.
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # Raw additional rules, for apps the single-host shape does not fit.
+  extraRules: []
+
+# `helm upgrade --atomic --wait` decides success from pod readiness, so point
+# these at an endpoint that fails when the app's dependencies are unreachable —
+# otherwise a broken release reports as a good one. Set to {} to disable.
+#
+# `port: http` resolves through the named container port, so overriding
+# service.containerPort is enough; you do not have to repeat the number here.
+startupProbe: {}
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  failureThreshold: 6
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+lifecycle: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# KEDA ScaledObject, not a plain HPA (see templates/hpa.yaml).
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: null
+  # Raw KEDA triggers for anything beyond cpu/memory (cron, queue depth, ...).
+  triggers: []
+  advanced: {}
+
+# Opt-in. On a single-replica Deployment a PDB blocks node drains outright.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: null
+  maxUnavailable: 50%
+
+initContainers: []
+extraVolumes: []
+extraVolumeMounts: []
+
+# Internal hosts the pods must resolve, identical in every environment. List only
+# what this app actually talks to rather than shipping the whole estate.
+hostAliases: []
+# - ip: "10.100.1.5"
+#   hostnames:
+#     - graylog.omnicasadev.local
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+# Schema migrations as a pre-upgrade Helm hook. Off by default: enabling it makes
+# every deploy depend on the migration succeeding. Read templates/migration-job.yaml
+# before turning this on — --atomic rolls back the release, not the database.
+migration:
+  enabled: false
+  command: []
+  # - npx
+  # - prisma
+  # - migrate
+  # - deploy
+  args: []
+  image:
+    # Empty = use the app image, so the migration runs the code being deployed.
+    repository: ""
+    pullPolicy: ""
+  restartPolicy: Never
+  # 0 = never retry. A retry against a half-applied schema makes things worse.
+  backoffLimit: 0
+  # Must stay well under the workflow's helm-timeout, or helm gives up first and
+  # the Job keeps running against the database with nothing watching it.
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: null
+  # Negative, so it runs before any other hook.
+  hookWeight: -5
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Scheduled tasks running the app image with the app's own config.
+cronJobs: []
+# - name: nightly-sync
+#   schedule: "0 2 * * *"
+#   command:
+#     - node
+#     - scripts/sync.js
+
+# Raw YAML objects, templated. The escape hatch that stops anyone forking the chart.
+extraManifests: []
+
+# Merged into every object's metadata. NOT into selector labels — those are
+# immutable once a Deployment exists.
+commonLabels: {}
+commonAnnotations: {}
