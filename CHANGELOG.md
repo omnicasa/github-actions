@@ -8,6 +8,34 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 ## [Unreleased]
 
+### Added
+
+- **`branch-guard.yml`** — a reusable workflow enforcing the gitflow branch naming on
+  pull requests. Defaults: `main` accepts `develop` and `hotfix/*`; `develop` accepts
+  `feat/*`, `fix/*`, `chore/*`, `refactor/*`, `hotfix/*`. Both lists are inputs.
+  Unknown base branches are skipped rather than blocked, so adding a `release/*` flow
+  later does not require touching this first.
+
+- **`templates/caller-deploy-gitflow.yml`** — PRs into `develop` deploy to staging for
+  QA; `develop` itself deploys nothing (what QA signed off on is already the commit
+  that was deployed); pushes to `main` deploy production.
+
+- **`templates/caller-branch-guard.yml`** — three-line caller for the guard.
+
+### Fixed
+
+- `deploy.yml` is now pull-request-aware. Three things were wrong for PR triggers:
+
+  - The image was tagged `github.sha`, which on a `pull_request` is the **merge**
+    commit — a synthetic commit on no branch that changes whenever the base moves,
+    so the tag could not be traced to anything. Now tags `pull_request.head.sha`.
+  - `actions/checkout` took the merge ref while the tag named the head commit, so the
+    image contents and its tag described different code. Both now use the head commit.
+  - The environment fell back to `github.head_ref`, which on a PR is a branch name
+    like `feat/login`, not an environment. That fallback is gone, and a new preflight
+    step fails fast if the resolved environment looks like a branch ref (`42/merge`,
+    `feat/login`) instead of resolving no secrets and failing obscurely later.
+
 ## [v1.2.0] — 2026-08-14
 
 ### Added

@@ -1,0 +1,106 @@
+name: Branch guard (reusable)
+
+# Enforces the Omnicasa gitflow branch naming on pull requests.
+#
+#   feat/*    new work            -> develop
+#   fix/*     non-urgent fix      -> develop
+#   chore/*   tooling, deps, docs -> develop
+#   refactor/*                    -> develop
+#   hotfix/*  urgent production   -> main   (cherry-pick to develop afterwards)
+#   develop   integration         -> main
+#
+# The point is that `main` only ever receives code that has been through develop,
+# or an explicitly-labelled hotfix. Anything else is a mistake worth catching in
+# the PR rather than after it merges.
+#
+# This is a required status check, not a substitute for a branch ruleset: a check
+# explains the rule, a ruleset enforces it against people who can bypass checks.
+# Use both — see docs/multi-environment.md.
+
+on:
+  workflow_call:
+    inputs:
+      allowed-into-main:
+        description: >-
+          Comma-separated branch names or prefixes that may open a PR into main.
+          A trailing / means "prefix"; anything else is an exact branch name.
+        type: string
+        required: false
+        default: "develop,hotfix/"
+      allowed-into-develop:
+        description: Same, for PRs into develop.
+        type: string
+        required: false
+        default: "feat/,fix/,chore/,refactor/,hotfix/"
+      runs-on:
+        type: string
+        required: false
+        default: ubuntu-latest
+    outputs:
+      kind:
+        description: Branch kind of the PR head — feat, fix, hotfix, develop, ...
+        value: ${{ jobs.guard.outputs.kind }}
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Branch naming
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      kind: ${{ steps.check.outputs.kind }}
+    steps:
+      - id: check
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+          INTO_MAIN: ${{ inputs.allowed-into-main }}
+          INTO_DEVELOP: ${{ inputs.allowed-into-develop }}
+        run: |
+          set -euo pipefail
+
+          case "$BASE" in
+            main)    allowed="$INTO_MAIN" ;;
+            develop) allowed="$INTO_DEVELOP" ;;
+            *)
+              echo "::notice::no branch policy defined for base '$BASE'; skipping"
+              echo "kind=unknown" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          ok=false
+          IFS=','
+          for pattern in $allowed; do
+            # A trailing slash means prefix match; otherwise the whole name must match.
+            case "$pattern" in
+              */) case "$HEAD" in "$pattern"*) ok=true ;; esac ;;
+              *)  [ "$HEAD" = "$pattern" ] && ok=true ;;
+            esac
+          done
+          unset IFS
+
+          if [ "$ok" != true ]; then
+            echo "::error title=Branch not allowed into $BASE::'$HEAD' cannot target '$BASE'. Allowed: $allowed"
+            {
+              echo "### Branch not allowed into \`$BASE\`"
+              echo
+              echo "\`$HEAD\` cannot target \`$BASE\`. Allowed: \`$allowed\`"
+              echo
+              if [ "$BASE" = "main" ]; then
+                echo "\`main\` takes \`develop\` (the normal path) or \`hotfix/*\` (urgent)."
+                echo "For a hotfix, rename the branch to \`hotfix/<what>\` and cherry-pick"
+                echo "it back to \`develop\` after it merges."
+              else
+                echo "Rename the branch to one of the allowed prefixes and push again;"
+                echo "the PR will pick it up."
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          # Everything before the first / — the branch kind. Callers can gate on it.
+          kind="${HEAD%%/*}"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "::notice::'$HEAD' -> '$BASE' ok (kind: $kind)"

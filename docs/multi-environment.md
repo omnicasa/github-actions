@@ -13,18 +13,54 @@ branch (or workflow_dispatch input)
 The environment name is the hinge. It is simultaneously the GitHub Environment, the
 registry path segment, and the key into the manifest's `environments:` block.
 
-## Current convention
+## The gitflow
 
-Branch names have **not** been aligned across the estate yet. Until they are, the mapping
-lives in one expression in each caller.
+```
+feat/*  ──PR──>  develop  ──PR──>  main
+fix/*   ──PR──>  develop
+hotfix/* ─────────PR─────────────> main   (then cherry-pick to develop)
+```
 
-| Repo shape | Branches | Caller expression |
+| Event | Deploys to | Why |
 |---|---|---|
-| Single branch | `main` | `environment: production` |
-| Two branches | `main`, `develop` | `${{ github.ref_name == 'main' && 'production' \|\| 'staging' }}` |
-| Already aligned | `staging`, `production` | `${{ github.ref_name }}` |
+| PR `feat/*` → `develop` | **staging** | QA tests the branch before it merges, so only tested code reaches `develop` |
+| push `develop` | nothing | `develop` is an integration branch; what QA approved is the commit already deployed from the PR |
+| PR → `main` | nothing | branch guard only |
+| push `main` | **production** | |
 
-Use `templates/caller-deploy-1branch.yml` or `-2branch.yml`.
+`main` accepts only `develop` (the normal path) and `hotfix/*` (urgent). A hotfix goes
+straight to `main`, deploys production on merge, and is cherry-picked back to `develop`
+afterwards — it gets no separate domain and no separate flow.
+
+Use `templates/caller-deploy-gitflow.yml` plus `templates/caller-branch-guard.yml`.
+
+A repo with no staging cluster entry uses `templates/caller-deploy-1branch.yml` instead:
+push to `main` deploys production, PRs deploy nothing, and the branch guard still runs.
+That is `omnicasa-tools` today.
+
+### Staging is one shared release
+
+Every open PR deploys over the same release at the same hostname. Two PRs in flight
+means the last push wins, so check the run's commit before testing. This was a
+deliberate trade — per-PR preview environments need wildcard DNS, a wildcard
+certificate, and a teardown job on PR close.
+
+### Pull-request specifics that bite
+
+- **`environment` must be passed explicitly** for PR triggers. On a `pull_request`,
+  `github.ref_name` is `42/merge` and `github.head_ref` is `feat/login` — neither is an
+  environment name. The workflow fails fast with a clear message rather than running
+  with no environment and no secrets.
+- **The image is tagged with the PR head commit**, not `github.sha`, which on a PR is
+  the merge commit — synthetic, on no branch, and it changes whenever the base moves.
+  Checkout uses the same head commit, so the image and its tag describe the same code.
+- **Fork PRs get no secrets.** GitHub withholds them, so the deploy fails closed at the
+  `required:` check. Fine for an org where all work happens on branches; worth knowing
+  if you ever accept outside contributions.
+- **The staging environment's deployment-branch policy must allow the PR head
+  branches.** Set staging to "All branches" — it is the low-stakes environment, and the
+  branch guard already restricts what can open a PR. Keep `production` restricted to
+  `main`.
 
 ## Why the expression is repeated inline
 

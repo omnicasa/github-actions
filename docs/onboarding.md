@@ -6,11 +6,12 @@ one, fifteen minutes after that.
 ## What the app repo ends up with
 
 ```
-.github/workflows/deploy.yml      # ~19 lines, from templates/caller-deploy-*.yml
-.github/workflows/rollback.yml    # ~22 lines, from templates/caller-rollback.yml
-.github/deploy-manifest.yml       # what the app needs      (templates/deploy-manifest.yml)
-deploy/values.yaml                # how the chart is shaped (templates/values.yaml)
-deploy/values.<env>.yaml          # optional, per environment
+.github/workflows/deploy.yml        # ~20 lines, from templates/caller-deploy-*.yml
+.github/workflows/rollback.yml      # ~22 lines, from templates/caller-rollback.yml
+.github/workflows/branch-guard.yml  # ~3 lines,  from templates/caller-branch-guard.yml
+.github/deploy-manifest.yml         # what the app needs      (templates/deploy-manifest.yml)
+deploy/values.yaml                  # how the chart is shaped (templates/values.yaml)
+deploy/values.<env>.yaml            # optional, per environment
 Dockerfile
 .dockerignore
 ```
@@ -67,8 +68,28 @@ judges success by pod readiness, so a probe that only proves the process is up m
 
 ### 3. Add the caller workflows
 
-From `templates/caller-deploy-1branch.yml` (or `-2branch`) and
-`templates/caller-rollback.yml`. Pin an exact `@vX.Y.Z`.
+Three files, all from `templates/`, all tracking `@v1`:
+
+| Template | Copy to | When |
+|---|---|---|
+| `caller-deploy-gitflow.yml` | `.github/workflows/deploy.yml` | the repo has a **staging** cluster entry — PRs into `develop` deploy there for QA |
+| `caller-deploy-1branch.yml` | `.github/workflows/deploy.yml` | **no staging** — only `main` deploys, PRs deploy nothing |
+| `caller-branch-guard.yml` | `.github/workflows/branch-guard.yml` | always |
+| `caller-rollback.yml` | `.github/workflows/rollback.yml` | always |
+
+Pick one deploy template, not both. The branch guard goes in either way — the gitflow
+naming is enforced whether or not PRs deploy anything.
+
+Then, in the repo's settings:
+
+- Make **Branch guard** a required status check on `main` and `develop`.
+- Require pull requests on `main`. The guard only runs on `pull_request`, so a direct
+  push bypasses it entirely.
+- Back both with a GitHub ruleset. A status check explains the rule; a ruleset enforces
+  it against anyone who can bypass checks.
+- Set the `staging` environment's deployment branches to **All branches** (PR head
+  branches vary, and the guard already restricts what can open one). Keep `production`
+  restricted to `main`, with required reviewers.
 
 ### 4. Prove the migration before it can do damage
 

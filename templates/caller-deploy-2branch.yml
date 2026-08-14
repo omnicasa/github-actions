@@ -1,11 +1,17 @@
-# Copy to .github/workflows/deploy.yml in a two-branch app repo.
+# SUPERSEDED — do not use for new repos. Use caller-deploy-gitflow.yml.
 #
-# Current Omnicasa convention: main -> production, develop -> staging. Renaming
-# branches to match the environment names is a separate migration; until then the
-# mapping lives in the one expression below.
+# This template deploys staging on a PUSH to develop. The adopted flow deploys
+# staging from the PULL REQUEST into develop instead, so QA tests a feature before
+# it merges and `develop` only ever contains approved code. Under this older
+# template, code reaches develop first and is tested afterwards — which is the
+# thing the gitflow was chosen to prevent.
 #
-# Repos whose branches are already called `staging` and `production` can simplify
-# to `environment: ${{ github.ref_name }}`.
+# Kept only for reference while repos migrate. See docs/multi-environment.md.
+#
+# Original notes:
+# Two-branch app repo. main -> production, develop -> staging, mapping in the one
+# expression below. Repos whose branches are already named `staging` and
+# `production` can simplify to `environment: ${{ github.ref_name }}`.
 
 name: Deploy
 

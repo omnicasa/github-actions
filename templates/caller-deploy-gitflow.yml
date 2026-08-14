@@ -1,0 +1,48 @@
+# Copy to .github/workflows/deploy.yml — the Omnicasa gitflow.
+#
+#   feat/* ─PR─> develop     deploys the PR head to STAGING (shared release)
+#   develop ─PR─> main       branch guard only, no deploy
+#   hotfix/* ─PR─> main      branch guard only, no deploy
+#   push to main             deploys PRODUCTION
+#
+# develop itself deploys nothing: it is the integration branch, and what QA signed
+# off on is exactly the commit that was already deployed to staging from the PR.
+#
+# Staging is ONE shared release. Two open PRs deploy over each other, last push
+# wins — so check the run's commit before testing if several are in flight.
+
+name: Deploy
+
+on:
+  pull_request:
+    branches:
+      - develop
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        type: choice
+        options:
+          - staging
+          - production
+        required: true
+      dry-run:
+        description: "Render and diff against the live release, do not upgrade"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    uses: omnicasa/github-actions/.github/workflows/deploy.yml@v1
+    with:
+      # Must be explicit: on a pull_request neither github.ref_name ("42/merge")
+      # nor github.head_ref ("feat/login") is an environment name.
+      environment: ${{ inputs.environment || (github.event_name == 'pull_request' && 'staging' || 'production') }}
+      dry-run: ${{ inputs.dry-run == true }}
+    secrets: inherit

@@ -138,24 +138,40 @@ jobs:
     # while a FAILED test job still does.
     if: ${{ inputs.build && always() && !failure() && !cancelled() }}
     runs-on: ${{ inputs.runs-on }}
-    environment: ${{ inputs.environment || github.head_ref || github.ref_name }}
+    environment: ${{ inputs.environment || github.ref_name }}
     concurrency:
       # Scoped to the repo: a bare per-environment group would serialise every
       # Omnicasa repo's build against every other one.
-      group: build-${{ github.repository }}-${{ inputs.environment || github.head_ref || github.ref_name }}
+      group: build-${{ github.repository }}-${{ inputs.environment || github.ref_name }}
       cancel-in-progress: false
     outputs:
       image-tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On pull_request the default checkout is the synthetic MERGE ref. Build the
+          # head commit instead: QA is testing the branch, and the image tag below
+          # names that same commit, so the two cannot disagree. Empty on push events.
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - id: tag
-        run: echo "tag=${{ inputs.image-tag || github.sha }}" >> "$GITHUB_OUTPUT"
+        env:
+          EXPLICIT: ${{ inputs.image-tag }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # github.sha on a pull_request is the merge commit — it exists on no branch
+          # and changes whenever the base moves, so an image tagged with it cannot be
+          # traced back to anything.
+          tag="${EXPLICIT:-${PR_SHA:-$PUSH_SHA}}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image tag: $tag"
 
       - id: repo
         env:
           MANIFEST: ${{ inputs.manifest-path }}
-          ENVIRONMENT: ${{ inputs.environment || github.head_ref || github.ref_name }}
+          ENVIRONMENT: ${{ inputs.environment || github.ref_name }}
         run: |
           set -euo pipefail
           python3 -m pip install --quiet --disable-pip-version-check pyyaml
@@ -204,21 +220,43 @@ jobs:
     # `environment:` and `concurrency:` cannot read the `env` context, so this
     # expression is repeated inline rather than factored into a variable. Referencing
     # `env` here fails silently — the job runs with no environment at all.
-    environment: ${{ inputs.environment || github.head_ref || github.ref_name }}
+    environment: ${{ inputs.environment || github.ref_name }}
     concurrency:
-      group: ${{ github.repository }}-${{ inputs.environment || github.head_ref || github.ref_name }}
+      group: ${{ github.repository }}-${{ inputs.environment || github.ref_name }}
       # Never cancel a run mid-`helm upgrade`: it leaves the release in
       # pending-upgrade AND leaves the runner's IP on the OVH allowlist.
       # The rollback workflow uses this same group so the two cannot overlap.
       cancel-in-progress: false
     outputs:
       image: ${{ steps.render.outputs.image }}
-      environment: ${{ inputs.environment || github.head_ref || github.ref_name }}
+      environment: ${{ inputs.environment || github.ref_name }}
       app: ${{ steps.render.outputs.app }}
       namespace: ${{ steps.render.outputs.namespace }}
       revision: ${{ steps.helm.outputs.revision }}
     steps:
+      - name: Check the environment resolved to an environment
+        env:
+          RESOLVED: ${{ inputs.environment || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # On a pull_request, github.ref_name is "<number>/merge" and head_ref is a
+          # branch like "feat/login" — neither is a GitHub Environment. A caller that
+          # forgets to pass `environment:` for PR triggers would otherwise run against
+          # an environment that does not exist, resolve no secrets, and fail somewhere
+          # much later with a confusing error.
+          case "$RESOLVED" in
+            */*|"")
+              echo "::error title=Bad environment::resolved to '$RESOLVED', which is a branch ref, not an environment name. Pass the 'environment' input explicitly — it is required for pull_request triggers."
+              exit 1
+              ;;
+          esac
+          echo "environment: $RESOLVED"
+
       - uses: actions/checkout@v4
+        with:
+          # Same head commit the image was built from, so the manifest and values
+          # match the code in the image rather than the merge preview.
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup cluster tooling
         uses: omnicasa/github-actions/actions/setup-cluster@v1
@@ -241,8 +279,8 @@ jobs:
         uses: omnicasa/github-actions/actions/render-values@v1
         with:
           manifest-path: ${{ inputs.manifest-path }}
-          environment: ${{ inputs.environment || github.head_ref || github.ref_name }}
-          image-tag: ${{ needs.build.outputs.image-tag || inputs.image-tag || github.sha }}
+          environment: ${{ inputs.environment || github.ref_name }}
+          image-tag: ${{ needs.build.outputs.image-tag || inputs.image-tag || github.event.pull_request.head.sha || github.sha }}
           # The manifest allowlists what the app actually receives; anything not
           # listed there — github_token included — is dropped by the renderer.
           vars-json: ${{ toJSON(vars) }}
@@ -262,7 +300,7 @@ jobs:
           # per-environment, then the computed files.
           values-files: |
             ${{ inputs.values-path }}
-            ${{ format('deploy/values.{0}.yaml', inputs.environment || github.head_ref || github.ref_name) }}
+            ${{ format('deploy/values.{0}.yaml', inputs.environment || github.ref_name) }}
             ${{ steps.render.outputs.release-values }}
             ${{ steps.render.outputs.app-env-values }}
 

@@ -35,8 +35,16 @@ jobs:
     secrets: inherit
 ```
 
-Plus `.github/deploy-manifest.yml` and `deploy/values.yaml`. Start from `templates/`, and
-follow [docs/onboarding.md](docs/onboarding.md).
+That example is the no-staging shape. A repo with a staging cluster uses
+`templates/caller-deploy-gitflow.yml` instead, where PRs into `develop` deploy to
+staging for QA and pushes to `main` deploy production.
+
+Plus `.github/workflows/branch-guard.yml`, `.github/deploy-manifest.yml` and
+`deploy/values.yaml`. Start from `templates/`, and follow
+[docs/onboarding.md](docs/onboarding.md).
+
+The branch flow is `feat/* → develop → main`, with `hotfix/* → main` for urgent fixes.
+[docs/multi-environment.md](docs/multi-environment.md) has the details.
 
 ## What is here
 
@@ -44,6 +52,7 @@ follow [docs/onboarding.md](docs/onboarding.md).
 |---|---|
 | `.github/workflows/deploy.yml` | The reusable `workflow_call` pipeline: test → build → deploy |
 | `.github/workflows/rollback.yml` | Reusable rollback, same concurrency group as deploy |
+| `.github/workflows/branch-guard.yml` | Reusable gitflow branch-naming check for pull requests |
 | `actions/setup-cluster` | Pinned helm + kubectl + helm-diff, writes the kubeconfig |
 | `actions/ovh-ip-allowlist` | Adds/removes the runner IP on the OVH cluster allowlist |
 | `actions/render-values` | Turns the GitHub Environment into two Helm values files |
