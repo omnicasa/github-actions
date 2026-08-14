@@ -1,12 +1,15 @@
 # Copy to .github/workflows/branch-guard.yml in every app repo.
 #
-# Fails a PR whose source branch is not allowed into its target, so the gitflow is
-# visible in the PR checks rather than only in a settings page someone has to know
-# to look at.
+# Fails a PR whose source branch is not one of the house branch kinds, so the naming
+# rule is visible in the PR checks rather than only in a settings page someone has to
+# know to look at.
 #
-# Make it a REQUIRED status check on both `main` and `develop`, and back it with a
-# GitHub ruleset — a check explains the rule, a ruleset enforces it against anyone
-# who can bypass checks. See docs/multi-environment.md.
+#   feat/  fix/  chore/  refactor/  hotfix/   ─PR─> main
+#
+# Make it a REQUIRED status check on `main`, and back it with a GitHub ruleset — a
+# check explains the rule, a ruleset enforces it against anyone who can bypass checks.
+# The guard only runs on `pull_request`, so a direct push to main bypasses it entirely;
+# requiring PRs on main is what closes that. See docs/multi-environment.md.
 
 name: Branch guard
 
@@ -14,7 +17,6 @@ on:
   pull_request:
     branches:
       - main
-      - develop
 
 permissions:
   contents: read
@@ -22,7 +24,6 @@ permissions:
 jobs:
   guard:
     uses: omnicasa/github-actions/.github/workflows/branch-guard.yml@v1
-    # Defaults encode the house convention:
-    #   into main    : develop, hotfix/*
-    #   into develop : feat/*, fix/*, chore/*, refactor/*, hotfix/*
-    # Override only if this repo genuinely differs.
+    # Default for `main` is the house convention: feat/, fix/, chore/, refactor/,
+    # hotfix/. Override `allowed-into-main` only if this repo genuinely differs —
+    # for example a repo that still keeps a develop integration branch.

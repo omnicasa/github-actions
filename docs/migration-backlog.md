@@ -102,9 +102,25 @@ The unified pipeline makes step 3 a one-secret change per repo.
 
 ### Branch-name alignment
 
-Deferred by decision. Today: `main` → production, `develop` → staging, expressed in the
-caller's one mapping expression. Repos already on literal `staging`/`production` branches
-simplify to `environment: ${{ github.ref_name }}`. Peppol's `develop-ci` disappears.
+The target is now one long-lived branch per repo — `main`, which is production. A change
+is deployed to staging from its pull request, tested, reviewed, and merged; the merge is
+the release. See [multi-environment.md](multi-environment.md).
+
+So this stopped being a *renaming* job and became a *deletion* job. Per repo:
+
+| Repo | Long-lived branches today | Work |
+|---|---|---|
+| consent-app, email-editor, payload | literal `staging` / `production` | retire both, cut over to `main`; the caller's mapping expression disappears |
+| tools, api-access, webhook | `main` | nothing — already there |
+| peppol | `main`, `develop`, `develop-ci` | retire `develop` and `develop-ci`; all three deploy production today, so nothing is lost by deleting them |
+
+Each repo also gets `caller-branch-guard.yml`, with **Branch guard** made a required
+status check on `main` and PRs required on `main`. That second one is not optional: the
+guard runs only on `pull_request`, and a direct push to `main` now deploys production.
+
+Do the branch retirement in the same PR as the pipeline migration — a repo mid-way
+between the two flows has two branches that both deploy, which is the state this whole
+exercise exists to remove.
 
 ### Bootstrap automation
 

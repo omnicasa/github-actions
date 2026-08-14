@@ -6,21 +6,36 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
-## [Unreleased]
+## [v1.4.0] — 2026-08-14
+
+Supersedes v1.3.0, which was tagged but never promoted to `v1` — its release run failed
+the "unrecorded change" guard, so `v1` stayed on v1.2.0. Everything below is therefore
+new to any consumer tracking `v1`, including the parts first tagged in v1.3.0.
 
 ### Added
 
-- **`branch-guard.yml`** — a reusable workflow enforcing the gitflow branch naming on
-  pull requests. Defaults: `main` accepts `develop` and `hotfix/*`; `develop` accepts
-  `feat/*`, `fix/*`, `chore/*`, `refactor/*`, `hotfix/*`. Both lists are inputs.
-  Unknown base branches are skipped rather than blocked, so adding a `release/*` flow
-  later does not require touching this first.
+- **`branch-guard.yml`** — a reusable workflow enforcing the house branch naming on
+  pull requests. Default: `main` accepts `feat/`, `fix/`, `chore/`, `refactor/` and
+  `hotfix/`. Both allow-lists are inputs. Unknown base branches are skipped rather
+  than blocked, so adding a `release/*` flow later does not require touching this first.
 
-- **`templates/caller-deploy-gitflow.yml`** — PRs into `develop` deploy to staging for
-  QA; `develop` itself deploys nothing (what QA signed off on is already the commit
-  that was deployed); pushes to `main` deploy production.
+- **`templates/caller-deploy.yml`** — the house flow. A PR into `main` deploys its head
+  commit to staging; the merge to `main` deploys production. There is no `develop`
+  branch: an integration branch means code lands somewhere shared before anyone has
+  run it. `hotfix/*` takes the same route as everything else — it is a label, not a
+  second pipeline, and gets no separate domain.
+
+- **`templates/caller-deploy-no-staging.yml`** — the same, minus the staging lane, for
+  a repo with no staging cluster entry. Switching later is a two-line change.
 
 - **`templates/caller-branch-guard.yml`** — three-line caller for the guard.
+
+### Deprecated
+
+- `templates/caller-deploy-gitflow.yml`, `caller-deploy-1branch.yml` and
+  `caller-deploy-2branch.yml` are superseded by the two templates above and carry a
+  header saying so. They target a `develop` branch or the older naming. Nothing
+  references them; they are kept only while repos migrate.
 
 ### Fixed
 
@@ -35,6 +50,13 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
     like `feat/login`, not an environment. That fallback is gone, and a new preflight
     step fails fast if the resolved environment looks like a branch ref (`42/merge`,
     `feat/login`) instead of resolving no secrets and failing obscurely later.
+
+## [v1.3.0] — 2026-08-14 — do not use
+
+Tagged, but `v1` was never moved to it: the release run failed because CHANGELOG.md had
+no `v1.3.0` entry, so the tag exists while `v1` stayed on v1.2.0. Its branch flow —
+`feat/* → develop → main`, with staging deployed from the PR into `develop` — was
+replaced before it shipped. Pin v1.4.0 or `v1` instead.
 
 ## [v1.2.0] — 2026-08-14
 

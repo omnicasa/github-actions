@@ -1,10 +1,11 @@
-# SUPERSEDED — renamed. Use caller-deploy-no-staging.yml, which is this file plus a
-# header explaining how it relates to caller-deploy.yml. "1branch" stopped meaning
-# anything once every repo runs a single long-lived branch.
+# Copy to .github/workflows/deploy.yml in a repo that has NO staging cluster entry.
 #
-# Original notes:
+#   {feat,fix,chore,refactor,hotfix}/*  ─PR─> main   branch guard only, no deploy
+#   push to main                                     deploys PRODUCTION
 #
-# Copy to .github/workflows/deploy.yml in a single-branch app repo (main -> production).
+# Identical to caller-deploy.yml minus the staging lane, so switching is a two-line
+# change once the repo has a staging namespace, RBAC, pull secret and a `staging`
+# GitHub Environment. Until then a PR is reviewed but never runs anywhere.
 #
 # @v1 is the floating major tag, moved only by the shared repo's release workflow after
 # CI passes. Keep it: the reusable workflow invokes its own composite actions at @v1 too,

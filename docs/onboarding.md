@@ -6,7 +6,7 @@ one, fifteen minutes after that.
 ## What the app repo ends up with
 
 ```
-.github/workflows/deploy.yml        # ~20 lines, from templates/caller-deploy-*.yml
+.github/workflows/deploy.yml        # ~20 lines, from templates/caller-deploy[-no-staging].yml
 .github/workflows/rollback.yml      # ~22 lines, from templates/caller-rollback.yml
 .github/workflows/branch-guard.yml  # ~3 lines,  from templates/caller-branch-guard.yml
 .github/deploy-manifest.yml         # what the app needs      (templates/deploy-manifest.yml)
@@ -72,19 +72,19 @@ Three files, all from `templates/`, all tracking `@v1`:
 
 | Template | Copy to | When |
 |---|---|---|
-| `caller-deploy-gitflow.yml` | `.github/workflows/deploy.yml` | the repo has a **staging** cluster entry — PRs into `develop` deploy there for QA |
-| `caller-deploy-1branch.yml` | `.github/workflows/deploy.yml` | **no staging** — only `main` deploys, PRs deploy nothing |
+| `caller-deploy.yml` | `.github/workflows/deploy.yml` | the repo has a **staging** cluster entry — PRs into `main` deploy there |
+| `caller-deploy-no-staging.yml` | `.github/workflows/deploy.yml` | **no staging** — only `main` deploys, PRs deploy nothing |
 | `caller-branch-guard.yml` | `.github/workflows/branch-guard.yml` | always |
 | `caller-rollback.yml` | `.github/workflows/rollback.yml` | always |
 
-Pick one deploy template, not both. The branch guard goes in either way — the gitflow
+Pick one deploy template, not both. The branch guard goes in either way — the branch
 naming is enforced whether or not PRs deploy anything.
 
 Then, in the repo's settings:
 
-- Make **Branch guard** a required status check on `main` and `develop`.
+- Make **Branch guard** a required status check on `main`.
 - Require pull requests on `main`. The guard only runs on `pull_request`, so a direct
-  push bypasses it entirely.
+  push bypasses it entirely — and a direct push to `main` deploys production.
 - Back both with a GitHub ruleset. A status check explains the rule; a ruleset enforces
   it against anyone who can bypass checks.
 - Set the `staging` environment's deployment branches to **All branches** (PR head

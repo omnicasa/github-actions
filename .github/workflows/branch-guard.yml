@@ -1,17 +1,20 @@
 name: Branch guard (reusable)
 
-# Enforces the Omnicasa gitflow branch naming on pull requests.
+# Enforces the Omnicasa branch naming on pull requests.
 #
-#   feat/*    new work            -> develop
-#   fix/*     non-urgent fix      -> develop
-#   chore/*   tooling, deps, docs -> develop
-#   refactor/*                    -> develop
-#   hotfix/*  urgent production   -> main   (cherry-pick to develop afterwards)
-#   develop   integration         -> main
+#   feat/*      new work                 ─PR─> main
+#   fix/*       non-urgent fix           ─PR─> main
+#   chore/*     tooling, deps, docs      ─PR─> main
+#   refactor/*  no behaviour change      ─PR─> main
+#   hotfix/*    urgent production fix    ─PR─> main
 #
-# The point is that `main` only ever receives code that has been through develop,
-# or an explicitly-labelled hotfix. Anything else is a mistake worth catching in
-# the PR rather than after it merges.
+# `main` is the only long-lived branch, and it is production. Every change reaches it
+# through a PR that was deployed to staging and reviewed, so the branch kind is a
+# label for humans and for release notes — not a different pipeline. hotfix/* is
+# deliberately no exception: it takes the same route, it just says why it is urgent.
+#
+# `allowed-into-develop` is kept for repos that still run a develop integration
+# branch. Repos on the house flow never hit it — no PR targets develop.
 #
 # This is a required status check, not a substitute for a branch ruleset: a check
 # explains the rule, a ruleset enforces it against people who can bypass checks.
@@ -26,9 +29,11 @@ on:
           A trailing / means "prefix"; anything else is an exact branch name.
         type: string
         required: false
-        default: "develop,hotfix/"
+        default: "feat/,fix/,chore/,refactor/,hotfix/"
       allowed-into-develop:
-        description: Same, for PRs into develop.
+        description: >-
+          Same, for PRs into develop. Only used by repos that still keep a develop
+          integration branch; the house flow has no such branch.
         type: string
         required: false
         default: "feat/,fix/,chore/,refactor/,hotfix/"
@@ -38,7 +43,7 @@ on:
         default: ubuntu-latest
     outputs:
       kind:
-        description: Branch kind of the PR head — feat, fix, hotfix, develop, ...
+        description: Branch kind of the PR head — feat, fix, chore, refactor, hotfix.
         value: ${{ jobs.guard.outputs.kind }}
 
 permissions:
@@ -89,9 +94,10 @@ jobs:
               echo "\`$HEAD\` cannot target \`$BASE\`. Allowed: \`$allowed\`"
               echo
               if [ "$BASE" = "main" ]; then
-                echo "\`main\` takes \`develop\` (the normal path) or \`hotfix/*\` (urgent)."
-                echo "For a hotfix, rename the branch to \`hotfix/<what>\` and cherry-pick"
-                echo "it back to \`develop\` after it merges."
+                echo "Every change reaches \`main\` from a typed branch. Pick the kind that"
+                echo "describes it — \`feat/\`, \`fix/\`, \`chore/\`, \`refactor/\`, or \`hotfix/\`"
+                echo "for an urgent production fix — rename the branch and push again; the"
+                echo "PR will pick up the new name."
               else
                 echo "Rename the branch to one of the allowed prefixes and push again;"
                 echo "the PR will pick it up."

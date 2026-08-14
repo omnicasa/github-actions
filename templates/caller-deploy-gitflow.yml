@@ -1,3 +1,11 @@
+# SUPERSEDED — do not use for new repos. Use caller-deploy.yml.
+#
+# This template targets a `develop` integration branch. The adopted flow has no
+# develop: feature branches PR straight into `main`, the PR deploys to staging, and
+# the merge is the production release. Kept only while any repo still runs develop.
+#
+# Original notes:
+#
 # Copy to .github/workflows/deploy.yml — the Omnicasa gitflow.
 #
 #   feat/* ─PR─> develop     deploys the PR head to STAGING (shared release)

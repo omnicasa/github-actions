@@ -13,30 +13,39 @@ branch (or workflow_dispatch input)
 The environment name is the hinge. It is simultaneously the GitHub Environment, the
 registry path segment, and the key into the manifest's `environments:` block.
 
-## The gitflow
+## The branch flow
 
 ```
-feat/*  ──PR──>  develop  ──PR──>  main
-fix/*   ──PR──>  develop
-hotfix/* ─────────PR─────────────> main   (then cherry-pick to develop)
+feat/*      ──PR──>  main        PR deploys to STAGING, merge deploys PRODUCTION
+fix/*       ──PR──>  main
+chore/*     ──PR──>  main
+refactor/*  ──PR──>  main
+hotfix/*    ──PR──>  main
 ```
 
 | Event | Deploys to | Why |
 |---|---|---|
-| PR `feat/*` → `develop` | **staging** | QA tests the branch before it merges, so only tested code reaches `develop` |
-| push `develop` | nothing | `develop` is an integration branch; what QA approved is the commit already deployed from the PR |
-| PR → `main` | nothing | branch guard only |
-| push `main` | **production** | |
+| PR `<kind>/*` → `main` | **staging** | the change is tested on stage-k8s before it is anywhere shared |
+| push `main` | **production** | the merge *is* the release |
 
-`main` accepts only `develop` (the normal path) and `hotfix/*` (urgent). A hotfix goes
-straight to `main`, deploys production on merge, and is cherry-picked back to `develop`
-afterwards — it gets no separate domain and no separate flow.
+`main` is the only long-lived branch, and it is production. There is no `develop`: an
+integration branch would mean code lands somewhere shared before anyone has run it,
+which is the thing this flow exists to prevent.
 
-Use `templates/caller-deploy-gitflow.yml` plus `templates/caller-branch-guard.yml`.
+The branch kind is a label, not a pipeline. `hotfix/*` takes exactly the same route as
+`feat/*` — same staging deploy, same review, same production release, same domain. It
+only says why the change is urgent, which is what you want in the log six months later.
+Nothing is cherry-picked anywhere, because there is nowhere to cherry-pick to.
 
-A repo with no staging cluster entry uses `templates/caller-deploy-1branch.yml` instead:
-push to `main` deploys production, PRs deploy nothing, and the branch guard still runs.
-That is `omnicasa-tools` today.
+Use `templates/caller-deploy.yml` plus `templates/caller-branch-guard.yml`.
+
+A repo with no staging cluster entry uses `templates/caller-deploy-no-staging.yml`
+instead: push to `main` deploys production, PRs deploy nothing, and the branch guard
+still runs. That is `omnicasa-tools` today.
+
+> `templates/caller-deploy-gitflow.yml`, `-1branch.yml` and `-2branch.yml` are
+> superseded and kept only for reference. They target a `develop` branch or an older
+> naming; do not start a new repo from them.
 
 ### Staging is one shared release
 

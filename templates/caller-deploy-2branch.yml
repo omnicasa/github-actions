@@ -1,10 +1,9 @@
-# SUPERSEDED — do not use for new repos. Use caller-deploy-gitflow.yml.
+# SUPERSEDED — do not use for new repos. Use caller-deploy.yml.
 #
-# This template deploys staging on a PUSH to develop. The adopted flow deploys
-# staging from the PULL REQUEST into develop instead, so QA tests a feature before
-# it merges and `develop` only ever contains approved code. Under this older
-# template, code reaches develop first and is tested afterwards — which is the
-# thing the gitflow was chosen to prevent.
+# This template deploys staging on a PUSH to develop, so code reaches a shared branch
+# first and is tested afterwards. The adopted flow deploys staging from the PULL
+# REQUEST into `main` instead: a change is tested before it is anywhere shared, and
+# there is no develop branch at all.
 #
 # Kept only for reference while repos migrate. See docs/multi-environment.md.
 #

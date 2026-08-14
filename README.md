@@ -35,15 +35,16 @@ jobs:
     secrets: inherit
 ```
 
-That example is the no-staging shape. A repo with a staging cluster uses
-`templates/caller-deploy-gitflow.yml` instead, where PRs into `develop` deploy to
-staging for QA and pushes to `main` deploy production.
+That example is the no-staging shape (`templates/caller-deploy-no-staging.yml`). A repo
+with a staging cluster entry uses `templates/caller-deploy.yml` instead, which adds a
+`pull_request` trigger so the PR deploys to staging.
 
 Plus `.github/workflows/branch-guard.yml`, `.github/deploy-manifest.yml` and
 `deploy/values.yaml`. Start from `templates/`, and follow
 [docs/onboarding.md](docs/onboarding.md).
 
-The branch flow is `feat/* → develop → main`, with `hotfix/* → main` for urgent fixes.
+The branch flow is `{feat,fix,chore,refactor,hotfix}/* ─PR─> main`: the pull request
+deploys to staging, the merge deploys production. `main` is the only long-lived branch.
 [docs/multi-environment.md](docs/multi-environment.md) has the details.
 
 ## What is here
@@ -52,7 +53,7 @@ The branch flow is `feat/* → develop → main`, with `hotfix/* → main` for u
 |---|---|
 | `.github/workflows/deploy.yml` | The reusable `workflow_call` pipeline: test → build → deploy |
 | `.github/workflows/rollback.yml` | Reusable rollback, same concurrency group as deploy |
-| `.github/workflows/branch-guard.yml` | Reusable gitflow branch-naming check for pull requests |
+| `.github/workflows/branch-guard.yml` | Reusable branch-naming check for pull requests |
 | `actions/setup-cluster` | Pinned helm + kubectl + helm-diff, writes the kubeconfig |
 | `actions/ovh-ip-allowlist` | Adds/removes the runner IP on the OVH cluster allowlist |
 | `actions/render-values` | Turns the GitHub Environment into two Helm values files |

@@ -1,0 +1,52 @@
+# Copy to .github/workflows/deploy.yml — the Omnicasa house flow.
+#
+#   {feat,fix,chore,refactor,hotfix}/*  ─PR─> main   deploys the PR head to STAGING
+#   push to main                                     deploys PRODUCTION
+#
+# `main` is the only long-lived branch and it is production. A change is deployed to
+# stage-k8s from its pull request, tested there, reviewed, and then merged — so what
+# lands on main is exactly the commit QA signed off on, and the merge is the release.
+#
+# Staging is ONE shared release at one hostname. Two open PRs deploy over each other,
+# last push wins — check the run's commit before testing if several are in flight.
+#
+# Use with templates/caller-branch-guard.yml, which enforces the branch naming above.
+# Repos with no staging cluster entry use templates/caller-deploy-no-staging.yml.
+
+name: Deploy
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        type: choice
+        options:
+          - staging
+          - production
+        required: true
+      dry-run:
+        description: "Render and diff against the live release, do not upgrade"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    uses: omnicasa/github-actions/.github/workflows/deploy.yml@v1
+    with:
+      # Must be explicit: on a pull_request neither github.ref_name ("42/merge")
+      # nor github.head_ref ("feat/login") is an environment name.
+      environment: ${{ inputs.environment || (github.event_name == 'pull_request' && 'staging' || 'production') }}
+      dry-run: ${{ inputs.dry-run == true }}
+    # Passes the repo, org and environment secrets through. The called workflow
+    # declares `environment:`, which is what makes the environment's secrets resolve.
+    secrets: inherit
