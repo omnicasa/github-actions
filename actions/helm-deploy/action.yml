@@ -173,8 +173,9 @@ runs:
         TIMEOUT: ${{ inputs.timeout }}
         HISTORY_MAX: ${{ inputs.history-max }}
         ATOMIC: ${{ inputs.atomic }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        set -euo pipefail
+        set -uo pipefail
         # An `if`, not `[ ... ] && atomic=...`. The AND-list form returns 1 when the
         # test is false, which is harmless mid-script but fails the whole step if it
         # ever ends up as the last line — a trap that only appears when someone
@@ -185,6 +186,18 @@ runs:
           atomic="--atomic"
         fi
 
+        # Capture unhealthy pods WHILE the upgrade runs. With --atomic, helm finishes
+        # its rollback before returning non-zero, deleting the failed pods and their
+        # logs — so anything that inspects the cluster afterwards finds nothing. This
+        # background loop is the only thing that sees the failure as it happens.
+        capture=/tmp/deploy-capture.txt
+        : > "$capture"
+        bash "$ACTION_PATH/capture-failing-pods.sh" \
+          "$NAMESPACE" "$RELEASE" "$capture" 5 80 >/dev/null 2>&1 &
+        watcher=$!
+        # Kill the watcher however this step exits, including a cancelled job.
+        trap 'kill "$watcher" 2>/dev/null || true' EXIT
+
         # shellcheck disable=SC2086
         helm upgrade --install "$RELEASE" "$CHART" \
           --namespace "$NAMESPACE" \
@@ -192,6 +205,26 @@ runs:
           --timeout "$TIMEOUT" \
           --history-max "$HISTORY_MAX" \
           $VALUES_ARGS
+        rc=$?
+
+        kill "$watcher" 2>/dev/null || true
+        wait "$watcher" 2>/dev/null || true
+
+        if [ "$rc" -ne 0 ]; then
+          echo "::group::Pod state and logs captured during the failed upgrade"
+          cat "$capture" 2>/dev/null || echo "(nothing captured — the pods never started)"
+          echo "::endgroup::"
+          {
+            echo "### Deploy failed — pod logs captured before the rollback"
+            echo
+            echo "\`helm upgrade --atomic\` has already rolled back, so the cluster no"
+            echo "longer holds this evidence. Captured live during the upgrade:"
+            echo '```'
+            tail -c 50000 "$capture" 2>/dev/null || echo "(nothing captured)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+        fi
 
         rev=$(helm status "$RELEASE" -n "$NAMESPACE" -o json | jq -r '.version')
         echo "revision=$rev" >> "$GITHUB_OUTPUT"
@@ -204,14 +237,35 @@ runs:
         RELEASE: ${{ inputs.release }}
         NAMESPACE: ${{ inputs.namespace }}
         ROLLOUT_TIMEOUT: ${{ inputs.rollout-timeout }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        set -euo pipefail
+        set -uo pipefail
         # Largely redundant against --wait --atomic, but it prints the rollout
         # state into the log, and it fails loudly if the Deployment's name ever
         # stops matching the release name.
-        kubectl rollout status "deployment/$RELEASE" \
-          --namespace "$NAMESPACE" \
-          --timeout="$ROLLOUT_TIMEOUT"
+        if kubectl rollout status "deployment/$RELEASE" \
+             --namespace "$NAMESPACE" \
+             --timeout="$ROLLOUT_TIMEOUT"; then
+          exit 0
+        fi
+
+        # Reached when the release "succeeded" but the pods did not settle — the
+        # case --atomic does not cover, and the one where nothing has been deleted
+        # yet, so the failing pods are still there to be read.
+        echo "::error::rollout did not complete within $ROLLOUT_TIMEOUT"
+        echo "::group::Pod state and logs"
+        snapshot=/tmp/rollout-capture.txt
+        timeout 60 bash "$ACTION_PATH/capture-failing-pods.sh" \
+          "$NAMESPACE" "$RELEASE" "$snapshot" 5 120 >/dev/null 2>&1 || true
+        cat "$snapshot" 2>/dev/null || echo "(no snapshot captured)"
+        echo "::endgroup::"
+        {
+          echo "### Rollout did not complete"
+          echo '```'
+          tail -c 50000 "$snapshot" 2>/dev/null || echo "(no snapshot captured)"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit 1
 
     - name: Report dry run
       if: inputs.dry-run == 'true'

@@ -10,6 +10,24 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 ## [v1.1.0] — 2026-08-14
 
+### Added
+
+- `helm-deploy` now captures unhealthy pods **during** the upgrade, not after it.
+
+  A background loop snapshots pod phase, container state and reason, current and
+  `--previous` logs, and warning events every 5s while `helm upgrade` runs, and prints
+  the last snapshot to the log and the job summary if the upgrade fails.
+
+  This closes a real hole: `helm upgrade --atomic` completes its rollback *before*
+  returning non-zero, deleting the failed ReplicaSet, its pods and their logs. Anything
+  that inspects the cluster after the failure — including the existing `k8s-diagnostics`
+  step — finds it already gone. The only moment the evidence exists is during the
+  upgrade.
+
+- `kubectl rollout status` failures now print the same pod state and logs. This covers
+  the case `--atomic` does not: a release helm considers successful whose pods never
+  settle. Nothing has been deleted at that point, so the failing pods are still readable.
+
 ### Removed — breaking for any manifest using `migration:`
 
 - `migration` is no longer a `deploy-manifest.yml` key. The chart reads `migration.*`
