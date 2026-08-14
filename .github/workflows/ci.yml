@@ -111,10 +111,13 @@ jobs:
       - name: Render with planted secrets, assert none appear
         run: |
           set -euo pipefail
-          export VARS_JSON='{"OVH_REGISTRY":"reg.example","IMAGE_PULL_SECRET_NAME":"ovh-reg","APP_DOMAIN":"tools.example.com","NODE_ENV":"production"}'
+          # Every name below must be in the fixture manifest's allowlist, or the
+          # renderer correctly drops it and the assertions below have nothing to check.
+          # Keep these two in step when the fixture changes.
+          export VARS_JSON='{"OVH_REGISTRY":"reg.example","IMAGE_PULL_SECRET_NAME":"ovh-reg","APP_DOMAIN":"tools.example.com","NODE_ENV":"production","SMTP_HOST":"smtp.example","SMTP_PORT":"587","EMAIL_FROM":"noreply@example","AUTH_TRUST_HOST":"true","CUSTOMER_DB_CONNECT_TIMEOUT_MS":"45000"}'
           # A comma-bearing password and a JSON map: both would corrupt a release
           # under `helm --set`, which is why values files exist.
-          export SECRETS_JSON='{"DATABASE_URL":"postgres://u:CANARY,WITH,COMMAS@h/db","AUTH_SECRET":"CANARY_AUTH","CUSTOMER_DB_HOST_MAP":"{\"a\":\"1.2.3.4\"}","github_token":"CANARY_TOKEN"}'
+          export SECRETS_JSON='{"AUTH_SECRET":"CANARY_AUTH","CRM_CUSTOMER_DATABASE_URL":"Server=h;Password=CANARY,WITH,COMMAS","OMNICASA_DATABASE_URL":"Server=h2;Password=CANARY_OMNI","CUSTOMER_DB_HOST_MAP":"{\"a\":\"1.2.3.4\"}","POSTMARK_API_KEY":"CANARY_PM","github_token":"CANARY_TOKEN"}'
           export ENVIRONMENT=production IMAGE_TAG=deadbeef
           export DEPLOY_MANIFEST=tests/fixtures/omnicasa-tools/deploy-manifest.yml
           export RELEASE_VALUES_OUT=/tmp/release-values.json
@@ -136,11 +139,28 @@ jobs:
 
           # The comma-bearing password must survive byte-for-byte.
           python3 - <<'PY'
-          import json
-          v = json.load(open("/tmp/app-env-values.json"))["config"]["env"]["secrets"]
-          assert v["DATABASE_URL"] == "postgres://u:CANARY,WITH,COMMAS@h/db", v["DATABASE_URL"]
-          assert v["CUSTOMER_DB_HOST_MAP"] == '{"a":"1.2.3.4"}'
-          print("commas and JSON survived intact")
+          import json, sys
+          env = json.load(open("/tmp/app-env-values.json"))["config"]["env"]
+          secrets, variables = env["secrets"], env["variables"]
+
+          # A KeyError here means the planted name is not in the fixture manifest's
+          # allowlist — a broken test, not a broken renderer. Say which.
+          expected = {
+              "CRM_CUSTOMER_DATABASE_URL": "Server=h;Password=CANARY,WITH,COMMAS",
+              "CUSTOMER_DB_HOST_MAP": '{"a":"1.2.3.4"}',
+          }
+          missing = sorted(k for k in expected if k not in secrets)
+          if missing:
+              print(f"::error::{', '.join(missing)} not in the rendered secrets — "
+                    "is it still listed under env.secrets in the fixture manifest?")
+              sys.exit(1)
+          for key, want in expected.items():
+              assert secrets[key] == want, f"{key}: {secrets[key]!r} != {want!r}"
+
+          # Derived values land on the variables side, never in the Secret.
+          assert variables["AUTH_URL"] == "https://tools.example.com", variables["AUTH_URL"]
+          assert "AUTH_URL" not in secrets
+          print("commas and JSON survived intact; derived value on the variables side")
           PY
           rm -f /tmp/*-values.json
 
