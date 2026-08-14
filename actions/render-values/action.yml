@@ -8,15 +8,20 @@ inputs:
   image-tag:
     description: Image tag being deployed — always the commit SHA
     required: true
+  # NOTE: no GitHub expressions anywhere in this file outside `runs:`. The runner
+  # evaluates input descriptions too, and a composite action's manifest has neither
+  # `vars` nor `secrets` in scope — writing the expression here as documentation
+  # fails the whole action to load with "Unrecognized named-value: 'vars'".
   vars-json:
-    description: '${{ toJSON(vars) }}'
+    description: >-
+      The caller's whole vars context, serialised — pass toJSON(vars) from the workflow.
     required: true
   secrets-json:
     description: >-
-      ${{ toJSON(secrets) }}. Passed wholesale on purpose: the manifest allowlists
-      what the app actually gets, so adding a secret is one line in the app repo
-      and never a change here. Keys not on the allowlist — including github_token —
-      are ignored outright.
+      The caller's whole secrets context, serialised — pass toJSON(secrets) from the
+      workflow. Passed wholesale on purpose: the manifest allowlists what the app
+      actually gets, so adding a secret is one line in the app repo and never a change
+      here. Keys not on the allowlist — including github_token — are ignored outright.
     required: true
   manifest-path:
     description: Path to the deploy manifest in the caller repo

@@ -83,6 +83,20 @@ jobs:
               for step in d.get("runs", {}).get("steps", []):
                   if "run" in step and "shell" not in step:
                       print(f"FAIL {f}: a run: step is missing shell:"); bad = 1
+
+              # The runner evaluates input/output DESCRIPTIONS as templates, and a
+              # composite manifest has neither `vars` nor `secrets` in scope. Writing
+              # one there as documentation makes the action fail to load entirely,
+              # which actionlint does not catch because it does not read action.yml.
+              # The marker is built rather than written literally: a bare dollar-brace
+              # in this file is itself parsed as a workflow expression.
+              marker = "$" + "{{"
+              for section in ("inputs", "outputs"):
+                  for name, spec in (d.get(section) or {}).items():
+                      if marker in str((spec or {}).get("description", "")):
+                          print(f"FAIL {f}: {section}.{name}.description contains a "
+                                "workflow expression; write it as prose")
+                          bad = 1
               print(f"ok {f}")
           sys.exit(bad)
           PY
