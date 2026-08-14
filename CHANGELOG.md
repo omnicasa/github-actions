@@ -8,7 +8,7 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 ## [Unreleased]
 
-## [v1.1.0] — 2026-08-14
+## [v1.2.0] — 2026-08-14
 
 ### Added
 
@@ -27,6 +27,8 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 - `kubectl rollout status` failures now print the same pod state and logs. This covers
   the case `--atomic` does not: a release helm considers successful whose pods never
   settle. Nothing has been deleted at that point, so the failing pods are still readable.
+
+## [v1.1.0] — 2026-08-14
 
 ### Removed — breaking for any manifest using `migration:`
 
