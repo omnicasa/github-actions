@@ -41,7 +41,7 @@ runs:
       with:
         version: ${{ inputs.helm-version }}
 
-    - uses: azure/setup-kubectl@v4
+    - uses: azure/setup-kubectl@v5
       with:
         version: ${{ inputs.kubectl-version }}
 
