@@ -35,13 +35,13 @@ config:
       AUTH_TRUST_HOST: "true"
       SMTP_HOST: smtp.postmarkapp.com
       EMAIL_FROM: noreply@omnicasa.com
-      ADMIN_EMAILS: "a@b.com,c@d.com"
       CUSTOMER_DB_CONNECT_TIMEOUT_MS: "45000"
       AUTH_URL: https://tools.omnicasa.com
     secrets:
-      DATABASE_URL: "postgres://u:p,a,s,s@h/db"
       AUTH_SECRET: sekrit
-      CRM_CUSTOMER_DATABASE_URL: postgres://x
-      OMNICASA_DATABASE_URL: postgres://y
+      # Deliberately comma-bearing: this is the shape that corrupts a release
+      # under `helm --set`, which is why values files exist.
+      CRM_CUSTOMER_DATABASE_URL: "Server=h;User Id=u;Password=p,a,s,s"
+      OMNICASA_DATABASE_URL: "Server=h2;User Id=u;Password=q,w,e"
       CUSTOMER_DB_HOST_MAP: '{"a":"1.2.3.4","b":"5.6.7.8"}'
       POSTMARK_API_KEY: pmk

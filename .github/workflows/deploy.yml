@@ -221,13 +221,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup cluster tooling
-        uses: omnicasa/github-actions/actions/setup-cluster@v1
+        uses: omnicasa/github-actions/actions/setup-cluster@v1.0.0
         with:
           kubeconfig-base64: ${{ secrets.KUBECONFIG_BASE64 }}
 
       - name: Authorise runner IP
         id: allowlist
-        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
+        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1.0.0
         with:
           action: add
           project-id: ${{ vars.OVH_PROJECT_ID }}
@@ -238,7 +238,7 @@ jobs:
 
       - name: Render Helm values
         id: render
-        uses: omnicasa/github-actions/actions/render-values@v1
+        uses: omnicasa/github-actions/actions/render-values@v1.0.0
         with:
           manifest-path: ${{ inputs.manifest-path }}
           environment: ${{ inputs.environment || github.head_ref || github.ref_name }}
@@ -250,7 +250,7 @@ jobs:
 
       - name: Deploy with Helm
         id: helm
-        uses: omnicasa/github-actions/actions/helm-deploy@v1
+        uses: omnicasa/github-actions/actions/helm-deploy@v1.0.0
         with:
           release: ${{ steps.render.outputs.app }}
           namespace: ${{ steps.render.outputs.namespace }}
@@ -270,7 +270,7 @@ jobs:
         # The single highest-value step here: --atomic rolls back before the job
         # ends and deletes the failed pods, events and logs.
         if: failure()
-        uses: omnicasa/github-actions/actions/k8s-diagnostics@v1
+        uses: omnicasa/github-actions/actions/k8s-diagnostics@v1.0.0
         with:
           namespace: ${{ steps.render.outputs.namespace }}
           release: ${{ steps.render.outputs.app }}
@@ -281,7 +281,7 @@ jobs:
 
       - name: Remove runner IP
         if: always()
-        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
+        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1.0.0
         with:
           action: remove
           # The IP the add step actually used, in case the runner's egress

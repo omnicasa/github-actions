@@ -1,0 +1,31 @@
+# Explicit rule selection, not ruff's defaults.
+#
+# CI pins nothing about ruff's version, so relying on its default rule set means a
+# new ruff release can turn a green repo red without anyone changing a line. The
+# first CI run hit exactly that: BLE001 is not in the old default set.
+
+target-version = "py310"
+line-length = 100
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes — real bugs: undefined names, unused imports
+    "W",   # pycodestyle warnings
+    "I",   # import sorting
+    "UP",  # pyupgrade
+    "B",   # bugbear — mutable defaults, shadowed loop vars
+    "S",   # bandit — these scripts handle the whole secrets context
+]
+
+ignore = [
+    "E501",  # line length is handled by the formatter, not worth failing CI over
+    "S404",  # subprocess import is the point of these scripts
+]
+
+[lint.per-file-ignores]
+# Both scripts deliberately catch bare Exception around yaml.safe_load: PyYAML raises
+# several unrelated types for malformed input and the caller wants one clean
+# "not valid YAML" message with the reason attached, not a stack trace.
+"actions/render-values/render-values.py" = ["BLE001"]
+"scripts/validate-manifest.py" = ["BLE001"]

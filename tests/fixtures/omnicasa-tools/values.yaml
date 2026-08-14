@@ -1,8 +1,15 @@
 # Fixture mirroring omnicasa-tools' deploy/values.yaml.
+# Kept byte-identical to the real file so the golden render means something.
+
+# Chart overrides for omnicasa-tools.
 #
-# Kept in sync with the real file so CI's golden-template test catches a chart
-# change that would alter the running release. Every number here was copied from
-# omnicasa-tools/k8s/helm/omnicasa-tools/values.yaml.
+# Every value here was copied from the old k8s/helm/omnicasa-tools/values.yaml so the
+# first deploy on the new pipeline changes only what it is meant to change. Verified
+# with `helm template` against both charts: all object names and the Deployment and
+# Service selectors come out byte-identical.
+#
+# Per-environment app config does NOT belong here — it comes from the GitHub
+# Environment via the manifest. This file is only the shape of the release.
 
 replicaCount: 2
 
@@ -44,12 +51,16 @@ resources:
     cpu: 500m
     memory: 512Mi
 
+# The old chart carried autoscaling.* values but shipped no HPA template, so this
+# has never actually done anything. The unified chart renders a KEDA ScaledObject
+# when enabled — leave it off until someone decides the thresholds are right.
 autoscaling:
   enabled: false
 
+# A PodDisruptionBudget at 50% on this Deployment would block node drains.
 podDisruptionBudget:
   enabled: false
 
-# Enabled in a follow-up PR, once the Dockerfile's runner stage ships the prisma CLI.
+# Prisma was removed from this app; there is no migration to run.
 migration:
   enabled: false

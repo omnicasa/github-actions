@@ -30,6 +30,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 MANIFEST = Path(os.environ.get("DEPLOY_MANIFEST", ".github/deploy-manifest.yml"))
 RELEASE_OUT = Path(os.environ.get("RELEASE_VALUES_OUT", "/tmp/release-values.json"))
@@ -44,7 +45,7 @@ DERIVED_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 ENV_OVERRIDABLE = ("app", "namespace", "repositoryPrefix", "tlsSecretName")
 
 
-def fail(msg: str) -> "NoReturn":  # noqa: F821
+def fail(msg: str) -> NoReturn:
     """Annotate the failure so it lands on the workflow summary, then stop."""
     print(f"::error::{msg}", file=sys.stderr)
     sys.exit(1)

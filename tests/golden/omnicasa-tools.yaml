@@ -28,10 +28,9 @@ data:
   # GitHub masks the literal secret in the log but NOT this base64 form, which is
   # why the workflow runs `helm diff` with --suppress-secrets.
   AUTH_SECRET: "c2Vrcml0"
-  CRM_CUSTOMER_DATABASE_URL: "cG9zdGdyZXM6Ly94"
+  CRM_CUSTOMER_DATABASE_URL: "U2VydmVyPWg7VXNlciBJZD11O1Bhc3N3b3JkPXAsYSxzLHM="
   CUSTOMER_DB_HOST_MAP: "eyJhIjoiMS4yLjMuNCIsImIiOiI1LjYuNy44In0="
-  DATABASE_URL: "cG9zdGdyZXM6Ly91OnAsYSxzLHNAaC9kYg=="
-  OMNICASA_DATABASE_URL: "cG9zdGdyZXM6Ly95"
+  OMNICASA_DATABASE_URL: "U2VydmVyPWgyO1VzZXIgSWQ9dTtQYXNzd29yZD1xLHcsZQ=="
   POSTMARK_API_KEY: "cG1r"
 ---
 # Source: omnicasa-app/templates/configmap.yaml
@@ -50,7 +49,6 @@ data:
   # a value containing a double quote, a colon or a newline produces invalid YAML
   # otherwise. ADMIN_EMAILS and any JSON-valued variable hit this. The Deployment
   # checksums this rendered output, so a change here rolls the pods.
-  ADMIN_EMAILS: "a@b.com,c@d.com"
   AUTH_TRUST_HOST: "true"
   AUTH_URL: "https://tools.omnicasa.com"
   CUSTOMER_DB_CONNECT_TIMEOUT_MS: "45000"
@@ -112,8 +110,8 @@ spec:
       annotations:
         # Roll the pods when only the env values change (same image tag) —
         # otherwise a config-only deploy is a no-op the pods never see.
-        checksum/config: e9c392303125eff06f1d109e08b9a911ca0eb05c4eb1097971063f37a411365c
-        checksum/secret: 60a62cd311b0367cbf7be29cf999f3a7b66250611707d302a3708872edbca88d
+        checksum/config: 424d6de91afb7402a1609fd6ed27e864ae599db1a0eab98682340c4249eb95ee
+        checksum/secret: d426d977adeaa3932bc2620053717afbdcb1b87f5d98541c0dc54cccf30823ef
       labels:
         app.kubernetes.io/name: omnicasa-tools
         app.kubernetes.io/instance: omnicasa-tools

@@ -1,43 +1,69 @@
 # Fixture mirroring omnicasa-tools' .github/deploy-manifest.yml.
-# Kept in sync with the real file so CI exercises the renderer against a real shape.
+# Kept byte-identical to the real file so CI exercises a real shape.
+
+# Deploy manifest — the single source of truth for what this app's release needs.
+#
+# Read by omnicasa/github-actions during deploy. The workflow hands it the entire
+# GitHub `vars` and `secrets` contexts; this file decides which of them the app
+# actually gets and where each one lands.
+#
+# Validate before opening a PR:
+#   python3 ../github-actions/scripts/validate-manifest.py .github/deploy-manifest.yml
 
 app: omnicasa-tools
 namespace: omnicasa-tools
+
 build: dockerfile
 workingDirectory: .
 
 domainVar: APP_DOMAIN
-# The live Secret is called omnicasa-tools-tls. Without this the renderer would
-# default to omnicasa-tools-tls-certificates and cert-manager would issue a new
-# certificate on cutover.
+
+# The live certificate Secret is called omnicasa-tools-tls. Without this line the
+# renderer would default to omnicasa-tools-tls-certificates, and cert-manager would
+# issue a brand-new certificate during the cutover.
 tlsSecretName: omnicasa-tools-tls
+
 ingress:
   managed: true
 
+# Unset, each of these produces a running-but-broken release: no reachable host, or
+# an app that cannot sign a session.
 required:
   - APP_DOMAIN
-  - DATABASE_URL
   - AUTH_SECRET
 
 env:
+  # -> ConfigMap. SMTP_HOST and EMAIL_FROM were previously carried in the app's
+  # Secret while simultaneously stored as plaintext repo vars. Neither is a
+  # credential, so they belong here.
   variables:
     - NODE_ENV
     - SMTP_HOST
     - SMTP_PORT
     - EMAIL_FROM
-    - ADMIN_EMAILS
     - AUTH_TRUST_HOST
+    # Read by src/lib/mssql-connection.ts. Documented in .env.example but missing
+    # from the old chart entirely, so the app has been falling back to its default.
     - CUSTOMER_DB_CONNECT_TIMEOUT_MS
+
+  # -> Secret, masked in the log.
   secrets:
-    - DATABASE_URL
     - AUTH_SECRET
     - CRM_CUSTOMER_DATABASE_URL
     - OMNICASA_DATABASE_URL
+    # JSON containing commas. Under the old pipeline this needed --set-file to
+    # survive; values files have no comma semantics, so the workaround is gone.
     - CUSTOMER_DB_HOST_MAP
     - POSTMARK_API_KEY
+
   derived:
+    # Was hardcoded in the old workflow as --set secrets.authUrl="https://${APP_URL}".
+    # Deriving it means the hostname has exactly one source.
     AUTH_URL: "https://${APP_DOMAIN}"
 
+# Prisma was removed from this app: no dependency, no schema, no client. The two
+# remaining databases are reached over mssql with connection strings, so there is
+# no migration step to run and nothing for the chart's hook Job to do.
 migration:
   enabled: false
 

@@ -8,6 +8,10 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 ## [Unreleased]
 
+## [v1.0.0] — 2026-08-14
+
+First release. `omnicasa-tools` is the only consumer.
+
 ### Added
 
 - Reusable `deploy.yml` (`workflow_call`): test → build → deploy, reproducing the
