@@ -4,8 +4,10 @@ name: Branch guard (reusable)
 #
 #   feat/*      new work                 ─PR─> main
 #   fix/*       non-urgent fix           ─PR─> main
-#   chore/*     tooling, deps, docs      ─PR─> main
+#   perf/*      speed or resource win    ─PR─> main
 #   refactor/*  no behaviour change      ─PR─> main
+#   chore/*     tooling, deps, docs      ─PR─> main
+#   ci/*        pipeline and workflows   ─PR─> main
 #   hotfix/*    urgent production fix    ─PR─> main
 #
 # `main` is the only long-lived branch, and it is production. Every change reaches it
@@ -29,21 +31,21 @@ on:
           A trailing / means "prefix"; anything else is an exact branch name.
         type: string
         required: false
-        default: "feat/,fix/,chore/,refactor/,hotfix/"
+        default: "feat/,fix/,perf/,refactor/,chore/,ci/,hotfix/"
       allowed-into-develop:
         description: >-
           Same, for PRs into develop. Only used by repos that still keep a develop
           integration branch; the house flow has no such branch.
         type: string
         required: false
-        default: "feat/,fix/,chore/,refactor/,hotfix/"
+        default: "feat/,fix/,perf/,refactor/,chore/,ci/,hotfix/"
       runs-on:
         type: string
         required: false
         default: ubuntu-latest
     outputs:
       kind:
-        description: Branch kind of the PR head — feat, fix, chore, refactor, hotfix.
+        description: Branch kind of the PR head — feat, fix, perf, refactor, chore, ci, hotfix.
         value: ${{ jobs.guard.outputs.kind }}
 
 permissions:
@@ -95,9 +97,9 @@ jobs:
               echo
               if [ "$BASE" = "main" ]; then
                 echo "Every change reaches \`main\` from a typed branch. Pick the kind that"
-                echo "describes it — \`feat/\`, \`fix/\`, \`chore/\`, \`refactor/\`, or \`hotfix/\`"
-                echo "for an urgent production fix — rename the branch and push again; the"
-                echo "PR will pick up the new name."
+                echo "describes it — \`feat/\`, \`fix/\`, \`perf/\`, \`refactor/\`, \`chore/\`, \`ci/\`,"
+                echo "or \`hotfix/\` for an urgent production fix — rename the branch and push"
+                echo "again; the PR will pick up the new name."
               else
                 echo "Rename the branch to one of the allowed prefixes and push again;"
                 echo "the PR will pick it up."

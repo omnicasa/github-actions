@@ -43,7 +43,7 @@ Plus `.github/workflows/branch-guard.yml`, `.github/deploy-manifest.yml` and
 `deploy/values.yaml`. Start from `templates/`, and follow
 [docs/onboarding.md](docs/onboarding.md).
 
-The branch flow is `{feat,fix,chore,refactor,hotfix}/* ─PR─> main`: the pull request
+The branch flow is `{feat,fix,perf,refactor,chore,ci,hotfix}/* ─PR─> main`: the pull request
 deploys to staging, the merge deploys production. `main` is the only long-lived branch.
 [docs/multi-environment.md](docs/multi-environment.md) has the details.
 

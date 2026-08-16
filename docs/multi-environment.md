@@ -18,8 +18,10 @@ registry path segment, and the key into the manifest's `environments:` block.
 ```
 feat/*      ──PR──>  main        PR deploys to STAGING, merge deploys PRODUCTION
 fix/*       ──PR──>  main
-chore/*     ──PR──>  main
+perf/*      ──PR──>  main
 refactor/*  ──PR──>  main
+chore/*     ──PR──>  main
+ci/*        ──PR──>  main
 hotfix/*    ──PR──>  main
 ```
 

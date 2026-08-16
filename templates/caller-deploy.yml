@@ -1,6 +1,6 @@
 # Copy to .github/workflows/deploy.yml — the Omnicasa house flow.
 #
-#   {feat,fix,chore,refactor,hotfix}/*  ─PR─> main   deploys the PR head to STAGING
+#   {feat,fix,perf,refactor,chore,ci,hotfix}/*  ─PR─> main   deploys the PR head to STAGING
 #   push to main                                     deploys PRODUCTION
 #
 # `main` is the only long-lived branch and it is production. A change is deployed to
