@@ -1,6 +1,6 @@
 # Copy to .github/workflows/deploy.yml in a repo that has NO staging cluster entry.
 #
-#   {feat,fix,chore,refactor,hotfix}/*  ─PR─> main   branch guard only, no deploy
+#   {feat,fix,perf,refactor,chore,ci,hotfix}/*  ─PR─> main   branch guard only, no deploy
 #   push to main                                     deploys PRODUCTION
 #
 # Identical to caller-deploy.yml minus the staging lane, so switching is a two-line

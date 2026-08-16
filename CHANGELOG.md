@@ -6,6 +6,18 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.5.0] — 2026-08-16
+
+### Changed
+
+- `branch-guard.yml` accepts two more branch kinds by default: `perf/` (speed or resource
+  work with no behaviour change) and `ci/` (pipeline and workflow changes, previously
+  forced into `chore/`). Both `allowed-into-main` and `allowed-into-develop` now default to
+  `feat/,fix/,perf/,refactor/,chore/,ci/,hotfix/`.
+
+  Widening only — no branch name that passed before fails now, so no consumer action is
+  needed. A repo that pinned a narrower list via `allowed-into-main` keeps its own list.
+
 ## [v1.4.0] — 2026-08-14
 
 Supersedes v1.3.0, which was tagged but never promoted to `v1` — its release run failed
