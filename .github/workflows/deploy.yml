@@ -216,7 +216,7 @@ jobs:
           done
           unset IFS
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
@@ -232,7 +232,7 @@ jobs:
     if: inputs.test-command != ''
     runs-on: ${{ inputs.runs-on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -268,7 +268,7 @@ jobs:
     outputs:
       image-tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # On pull_request the default checkout is the synthetic MERGE ref. Build the
           # head commit instead: QA is testing the branch, and the image tag below
@@ -345,7 +345,7 @@ jobs:
       namespace: ${{ steps.render.outputs.namespace }}
       revision: ${{ steps.helm.outputs.revision }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Same head commit the image was built from, so the manifest and values
           # match the code in the image rather than the merge preview.
