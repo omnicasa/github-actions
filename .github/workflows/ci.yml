@@ -39,8 +39,14 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install --quiet ruff pyyaml
-          python3 -m py_compile actions/render-values/render-values.py scripts/validate-manifest.py
-          ruff check actions/render-values/render-values.py scripts/validate-manifest.py
+          files="actions/render-values/render-values.py
+          actions/resolve-target/target.py
+          actions/resolve-target/resolve.py
+          scripts/validate-manifest.py"
+          # shellcheck disable=SC2086  # word splitting is the point
+          python3 -m py_compile $files
+          # shellcheck disable=SC2086
+          ruff check $files
 
       - name: Internal action refs all agree
         run: |
@@ -172,6 +178,53 @@ jobs:
       - run: python3 -m pip install --quiet pyyaml
       - run: python3 scripts/validate-manifest.py templates/deploy-manifest.yml
       - run: python3 scripts/validate-manifest.py tests/fixtures/*/deploy-manifest.yml
+
+      - name: Environment conventions and the on/off switch
+        run: |
+          set -euo pipefail
+          # The namespace and registry prefix a deploy uses are conventions, not
+          # written in any app repo's manifest. That makes them a contract with every
+          # live release: change a prefix and the next deploy pushes an image the
+          # cluster cannot pull; change a namespace and helm creates a second release
+          # beside the running one.
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "actions/resolve-target")
+          from target import load_manifest, resolve
+          from pathlib import Path
+
+          m = load_manifest(Path("tests/fixtures/omnicasa-tools/deploy-manifest.yml"))
+          app = m["app"]
+          expected = {
+              # environment    namespace            registry repository
+              "dev":        (f"dev-{app}",      f"dev/{app}"),
+              "staging":    (app,               f"staging/{app}"),
+              # prodtest deploys the artifact staging built, so it reads staging's path.
+              "prodtest":   (f"prodtest-{app}", f"staging/{app}"),
+              "production": (app,               f"production/{app}"),
+              # An environment nobody named behaves as it did before the conventions
+              # existed — this is what keeps repos on the two-environment flow working.
+              "sandbox":    (app,               f"sandbox/{app}"),
+          }
+          for env, (ns, repo) in expected.items():
+              t = resolve(m, env)
+              assert t.namespace == ns, f"{env}: namespace {t.namespace} != {ns}"
+              assert t.repository == repo, f"{env}: repository {t.repository} != {repo}"
+              assert t.enabled is True, f"{env}: should default to enabled"
+              assert t.app == app, f"{env}: app renamed to {t.app}"
+
+          # An explicit namespace is verbatim: the prefix must not stack onto a name
+          # someone chose, because that name is what the RBAC and pull secret exist for.
+          override = dict(m, environments={"dev": {"namespace": "tools-sandbox"}})
+          assert resolve(override, "dev").namespace == "tools-sandbox"
+
+          # The on/off switch, both spellings the workflow gates on.
+          off = dict(m, environments={"prodtest": {"enabled": False}})
+          assert resolve(off, "prodtest").enabled is False
+          assert resolve(off, "staging").enabled is True
+          assert resolve(dict(m, enabled=False), "production").enabled is False
+          print("conventions and the on/off switch hold")
+          PY
 
       - name: Validator rejects a broken manifest
         run: |

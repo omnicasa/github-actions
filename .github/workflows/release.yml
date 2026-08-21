@@ -27,6 +27,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # On a tag push this is the tag already. On workflow_dispatch it is NOT: the
+          # default ref is the branch chosen in the Actions UI, so without this line a
+          # dispatch of `tag: v1.5.0` from main checked out MAIN and moved v1 to main's
+          # HEAD while announcing v1.5.0. That is the rollback path, so it silently did
+          # the opposite of what it was asked.
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - id: version
         run: |
@@ -53,9 +59,13 @@ jobs:
           major="${{ steps.version.outputs.major }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -f -a "$major" -m "Track ${{ steps.version.outputs.tag }}"
+          # Name the target commit explicitly rather than relying on HEAD. Belt and
+          # braces with the `ref:` above: whatever is checked out, v1 lands on the
+          # commit the requested tag names.
+          target=$(git rev-list -n1 "${{ steps.version.outputs.tag }}")
+          git tag -f -a "$major" -m "Track ${{ steps.version.outputs.tag }}" "$target"
           git push -f origin "$major"
-          echo "::notice::$major now points at ${{ steps.version.outputs.tag }}"
+          echo "::notice::$major now points at ${{ steps.version.outputs.tag }} ($target)"
 
       - name: Publish release notes
         env:

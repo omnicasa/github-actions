@@ -93,6 +93,25 @@ for f in $WORKFLOWS; do
     && fail "$f uses --create-namespace; the namespace is pre-created and CI has no RBAC to patch it"
 done
 
+# ------------------------------------------------------------------ branch flow
+# On the four-environment flow a direct push to `staging` deploys prod-k8s (prodtest),
+# so the guard has to cover that base too — not only `main`.
+GUARD=$(grep -rl 'branch-guard\.yml@' .github/workflows/ 2>/dev/null | head -1)
+if grep -rq "environment: prodtest" .github/workflows/ 2>/dev/null; then
+  if [ -z "$GUARD" ]; then
+    fail "this repo deploys prodtest but has no branch-guard workflow"
+  elif ! grep -qE '^\s+- staging\s*$' "$GUARD"; then
+    fail "$GUARD does not run on PRs into 'staging', where the four-environment flow integrates"
+  else
+    ok "branch guard covers staging and main"
+  fi
+  # prodtest deploys prod-k8s from a staging-built image. If the caller rebuilds for
+  # prodtest instead of promoting, the two clusters run different bytes from one commit.
+  if ! grep -q 'build-only: true' .github/workflows/*.yml 2>/dev/null; then
+    warn "prodtest is deployed without a build-only job; it will rebuild the image instead of promoting staging's"
+  fi
+fi
+
 # ------------------------------------------------------------- rollback workflow
 if ! grep -rql 'rollback\.yml@' .github/workflows/ 2>/dev/null; then
   warn "no rollback workflow — during an incident the fallback is running helm by hand"

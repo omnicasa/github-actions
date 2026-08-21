@@ -10,10 +10,25 @@
 
 # Helm release name, the Deployment's name, and the registry repo suffix. These are
 # the same string on purpose: `kubectl rollout status deployment/<app>` depends on it.
+# The same in every environment — the environment is expressed by the namespace and
+# the registry prefix, not by renaming the release.
 app: my-app
 
 # Pre-created out of band. CI verifies it exists and never creates it, so the deploy
 # credentials need no namespace-write RBAC.
+#
+# This is the BASE namespace. Environments that share a cluster with another
+# environment of the same app get a prefix automatically:
+#
+#   dev         stage-k8s   dev-my-app
+#   staging     stage-k8s   my-app
+#   prodtest    prod-k8s    prodtest-my-app
+#   production  prod-k8s    my-app
+#
+# So the four namespaces below need creating, RBAC-registering and pull-secret-syncing
+# out of band, but none of them is written here. A repo that deviates states the
+# exception in `environments:` at the bottom, and an explicit namespace there is taken
+# verbatim — the prefix is never applied on top of it.
 namespace: my-app
 
 # Informational, so the next person knows why the pipeline looks the way it does.
@@ -74,11 +89,22 @@ env:
 # in deploy/values.yaml. If the WORKFLOW needs it before helm runs — the env
 # allowlist, required keys, the namespace to check — it goes here.
 
-# Per-environment deviations. Only app, namespace, repositoryPrefix and tlsSecretName
-# may be overridden — deliberately narrow, so an environment can never quietly
+# Per-environment deviations. Only app, namespace, repositoryPrefix, tlsSecretName and
+# enabled may be overridden — deliberately narrow, so an environment can never quietly
 # diverge in its env-var allowlist.
+#
+# `enabled: false` is the on/off switch. The environment's jobs skip with a green tick
+# and a log line saying why, instead of failing on missing credentials. Use it for an
+# app that has no prodtest namespace yet, or one that should never reach dev. Leave the
+# key out and the environment is on.
+#
+# Defaults worth knowing before overriding them, all applied by the shared workflow:
+#   namespace          dev-<app> / <app> / prodtest-<app> / <app>   (see `namespace:` above)
+#   repositoryPrefix   the environment name — except prodtest, which reads
+#                      `staging/<app>` because it deploys the artifact staging built
+#                      rather than rebuilding the same commit
 environments: {}
-# development:
-#   app: my-app-dev
-#   namespace: my-app-dev
-#   repositoryPrefix: staging
+# prodtest:
+#   enabled: false
+# dev:
+#   namespace: my-app-sandbox    # taken verbatim; no dev- prefix is added

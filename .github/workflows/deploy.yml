@@ -24,6 +24,26 @@ on:
         type: boolean
         required: false
         default: false
+      environment-branches:
+        description: >-
+          Comma-separated "environment=branch" pairs. A run whose ref is not that
+          branch cannot deploy that environment, and fails in seconds with a message
+          saying so. Guards against a workflow_dispatch that picks the right
+          environment from the wrong branch — the two are independent choices in the
+          Actions UI, and nothing in the form connects them. An environment absent from
+          the list is unrestricted. Set to an empty string to disable the check.
+        type: string
+        required: false
+        # Production only. Everything else is deliberately unrestricted:
+        #   staging   deploys from the `staging` branch on the four-environment flow but
+        #             from whatever branch opened the PR on the two-environment one, so
+        #             no single default is right for both.
+        #   dev       deploys from PR head branches, which have no fixed name.
+        #   prodtest  is dispatched on demand from a feature branch on purpose — it is
+        #             the rehearsal environment, and rehearsing a branch before it is
+        #             merged is the point. It runs on prod-k8s but serves no users.
+        # A repo that wants any of them pinned passes its own list.
+        default: production=main
       manifest-path:
         description: Path to the deploy manifest in the caller repo.
         type: string
@@ -49,6 +69,14 @@ on:
         type: boolean
         required: false
         default: true
+      build-only:
+        description: >-
+          Build and push, then stop. Used when two environments deploy the same commit:
+          one build produces the artifact, both deploys promote it, and the two run in
+          parallel instead of one waiting on the other's rollout.
+        type: boolean
+        required: false
+        default: false
       build-context:
         type: string
         required: false
@@ -98,6 +126,11 @@ on:
       image:
         description: Full image reference that was deployed
         value: ${{ jobs.deploy.outputs.image }}
+      image-tag:
+        description: >-
+          Tag that was built — the commit SHA. Set even for a build-only run, which is
+          how a caller hands one build to several deploy jobs.
+        value: ${{ jobs.build.outputs.image-tag }}
       environment:
         description: Resolved environment name
         value: ${{ jobs.deploy.outputs.environment }}
@@ -115,6 +148,85 @@ permissions:
   contents: read
 
 jobs:
+  resolve:
+    name: Resolve target
+    runs-on: ${{ inputs.runs-on }}
+    # No `environment:` — this job reads a file in the caller repo and needs no
+    # credentials. Keeping it credential-free is why the on/off switch can be
+    # evaluated before any environment protection rule has been satisfied.
+    outputs:
+      enabled: ${{ steps.target.outputs.enabled }}
+      app: ${{ steps.target.outputs.app }}
+      namespace: ${{ steps.target.outputs.namespace }}
+      repository: ${{ steps.target.outputs.repository }}
+    steps:
+      - name: Check the environment resolved to an environment
+        env:
+          RESOLVED: ${{ inputs.environment || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # On a pull_request, github.ref_name is "<number>/merge" and head_ref is a
+          # branch like "feat/login" — neither is a GitHub Environment. A caller that
+          # forgets to pass `environment:` for PR triggers would otherwise run against
+          # an environment that does not exist, resolve no secrets, and fail somewhere
+          # much later with a confusing error. Checked here, before the build, so the
+          # failure costs seconds rather than a full image build.
+          case "$RESOLVED" in
+            */*|"")
+              echo "::error title=Bad environment::resolved to '$RESOLVED', which is a branch ref, not an environment name. Pass the 'environment' input explicitly — it is required for pull_request triggers."
+              exit 1
+              ;;
+          esac
+          echo "environment: $RESOLVED"
+
+      - name: Check this ref may deploy this environment
+        env:
+          RESOLVED: ${{ inputs.environment || github.ref_name }}
+          REF: ${{ github.ref_name }}
+          POLICY: ${{ inputs.environment-branches }}
+        run: |
+          set -euo pipefail
+          # workflow_dispatch takes a branch and an environment as two INDEPENDENT
+          # choices, so nothing in the form stops someone picking `production` while
+          # standing on a feature branch. GitHub's own deployment-branch policy does
+          # stop it — but that is per-repo settings state: invisible in review, and
+          # silently absent the day someone forgets to set it on a new repo. This is
+          # the same rule expressed in code, so it holds by default everywhere.
+          #
+          # It is a second lock, not a replacement. Keep the environment policy set:
+          # only that one also governs who may approve, and it cannot be edited by
+          # someone with write access to this file.
+          IFS=','
+          for entry in $POLICY; do
+            case "$entry" in
+              *=*) ;;
+              *)
+                echo "::error title=Bad environment-branches::'$entry' is not environment=branch"
+                exit 1
+                ;;
+            esac
+            env_name="${entry%%=*}"
+            branch="${entry#*=}"
+            [ "$env_name" = "$RESOLVED" ] || continue
+            if [ "$REF" != "$branch" ]; then
+              echo "::error title=Wrong branch for $RESOLVED::this run is on '$REF', and '$RESOLVED' deploys only from '$branch'. Re-run the workflow with '$branch' selected. If that is genuinely wrong for this repo, change the environment-branches input in the caller."
+              exit 1
+            fi
+            echo "ref '$REF' may deploy '$RESOLVED'"
+          done
+          unset IFS
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Resolve app, namespace and repository
+        id: target
+        uses: omnicasa/github-actions/actions/resolve-target@v1
+        with:
+          environment: ${{ inputs.environment || github.ref_name }}
+          manifest-path: ${{ inputs.manifest-path }}
+
   test:
     name: Test & lint
     if: inputs.test-command != ''
@@ -133,10 +245,19 @@ jobs:
   build:
     name: Build & push
     needs:
+      - resolve
       - test
     # `always()` so a SKIPPED test job (test-command blank) does not skip this one,
-    # while a FAILED test job still does.
-    if: ${{ inputs.build && always() && !failure() && !cancelled() }}
+    # while a FAILED test job still does — and a failed `resolve` still does too.
+    #
+    # A disabled environment skips the build as well as the deploy, except on a
+    # build-only call: there the environment named is the one the artifact is built
+    # under, not necessarily one that deploys, so turning that one off must not
+    # starve the environments that promote from it.
+    if: >-
+      ${{ inputs.build
+          && (inputs.build-only || needs.resolve.outputs.enabled == 'true')
+          && always() && !failure() && !cancelled() }}
     runs-on: ${{ inputs.runs-on }}
     environment: ${{ inputs.environment || github.ref_name }}
     concurrency:
@@ -168,24 +289,6 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "image tag: $tag"
 
-      - id: repo
-        env:
-          MANIFEST: ${{ inputs.manifest-path }}
-          ENVIRONMENT: ${{ inputs.environment || github.ref_name }}
-        run: |
-          set -euo pipefail
-          python3 -m pip install --quiet --disable-pip-version-check pyyaml
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import os, yaml
-          m = yaml.safe_load(open(os.environ["MANIFEST"])) or {}
-          env = os.environ["ENVIRONMENT"]
-          # environments.<env> may rename the app or move it to another registry
-          # prefix; the build must push where the deploy will look.
-          m.update((m.get("environments") or {}).get(env) or {})
-          prefix = str(m.get("repositoryPrefix") or env)
-          print(f"repository={prefix}/{m['app']}" if prefix else f"repository={m['app']}")
-          PY
-
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -204,7 +307,7 @@ jobs:
           push: true
           # One immutable SHA tag. No `latest`: a floating tag makes "what is
           # running?" unanswerable and gives rollback no fixed target.
-          tags: ${{ vars.OVH_REGISTRY }}/${{ steps.repo.outputs.repository }}:${{ steps.tag.outputs.tag }}
+          tags: ${{ vars.OVH_REGISTRY }}/${{ needs.resolve.outputs.repository }}:${{ steps.tag.outputs.tag }}
           build-args: ${{ inputs.build-args }}
           # Cache lives with the repo, so there is no registry cache image to garbage-collect.
           cache-from: type=gha
@@ -213,9 +316,17 @@ jobs:
   deploy:
     name: Deploy
     needs:
+      - resolve
       - build
-    # Runs when build succeeded OR was skipped (inputs.build false), never after a failure.
-    if: ${{ always() && !failure() && !cancelled() }}
+    # Runs when build succeeded OR was skipped (inputs.build false), never after a
+    # failure. Two extra gates:
+    #   - `enabled`: the manifest turned this environment off, so the run is green and
+    #     says so rather than red for a deploy nobody wanted.
+    #   - `build-only`: this call exists to produce an artifact for someone else's
+    #     deploy job.
+    if: >-
+      ${{ needs.resolve.outputs.enabled == 'true' && !inputs.build-only
+          && always() && !failure() && !cancelled() }}
     runs-on: ${{ inputs.runs-on }}
     # `environment:` and `concurrency:` cannot read the `env` context, so this
     # expression is repeated inline rather than factored into a variable. Referencing
@@ -234,24 +345,6 @@ jobs:
       namespace: ${{ steps.render.outputs.namespace }}
       revision: ${{ steps.helm.outputs.revision }}
     steps:
-      - name: Check the environment resolved to an environment
-        env:
-          RESOLVED: ${{ inputs.environment || github.ref_name }}
-        run: |
-          set -euo pipefail
-          # On a pull_request, github.ref_name is "<number>/merge" and head_ref is a
-          # branch like "feat/login" — neither is a GitHub Environment. A caller that
-          # forgets to pass `environment:` for PR triggers would otherwise run against
-          # an environment that does not exist, resolve no secrets, and fail somewhere
-          # much later with a confusing error.
-          case "$RESOLVED" in
-            */*|"")
-              echo "::error title=Bad environment::resolved to '$RESOLVED', which is a branch ref, not an environment name. Pass the 'environment' input explicitly — it is required for pull_request triggers."
-              exit 1
-              ;;
-          esac
-          echo "environment: $RESOLVED"
-
       - uses: actions/checkout@v4
         with:
           # Same head commit the image was built from, so the manifest and values
@@ -281,6 +374,9 @@ jobs:
           manifest-path: ${{ inputs.manifest-path }}
           environment: ${{ inputs.environment || github.ref_name }}
           image-tag: ${{ needs.build.outputs.image-tag || inputs.image-tag || github.event.pull_request.head.sha || github.sha }}
+          # From the same resolver the build job pushed with, so a promoted image
+          # (prodtest reading staging/<app>) cannot end up looking somewhere else.
+          repository: ${{ needs.resolve.outputs.repository }}
           # The manifest allowlists what the app actually receives; anything not
           # listed there — github_token included — is dropped by the renderer.
           vars-json: ${{ toJSON(vars) }}

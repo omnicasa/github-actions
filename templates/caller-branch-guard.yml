@@ -1,21 +1,29 @@
-# Copy to .github/workflows/branch-guard.yml in every app repo.
+# Copy to .github/workflows/branch-guard.yml in every app repo, on either flow.
 #
 # Fails a PR whose source branch is not one of the house branch kinds, so the naming
 # rule is visible in the PR checks rather than only in a settings page someone has to
 # know to look at.
 #
-#   feat/  fix/  perf/  refactor/  chore/  ci/  hotfix/   ─PR─> main
+#   feat/  fix/  perf/  refactor/  chore/  ci/  hotfix/   ─PR─> staging ─and─> main
 #
-# Make it a REQUIRED status check on `main`, and back it with a GitHub ruleset — a
-# check explains the rule, a ruleset enforces it against anyone who can bypass checks.
-# The guard only runs on `pull_request`, so a direct push to main bypasses it entirely;
-# requiring PRs on main is what closes that. See docs/multi-environment.md.
+# Both bases are listed because the four-environment flow merges a feature branch
+# twice — into `staging`, then into `main`. On the two-environment flow there is no
+# `staging` branch, no PR ever targets it, and the extra line is inert. That is why
+# this is one file and not two: the trigger costs nothing when the branch is absent.
+#
+# Make it a REQUIRED status check on every base the repo actually uses, and back it
+# with a GitHub ruleset — a check explains the rule, a ruleset enforces it against
+# anyone who can bypass checks. The guard only runs on `pull_request`, so a direct
+# push bypasses it entirely; requiring PRs is what closes that. On the
+# four-environment flow that matters on `staging` too, where a direct push deploys
+# prod-k8s. See docs/multi-environment.md.
 
 name: Branch guard
 
 on:
   pull_request:
     branches:
+      - staging
       - main
 
 permissions:
@@ -24,6 +32,6 @@ permissions:
 jobs:
   guard:
     uses: omnicasa/github-actions/.github/workflows/branch-guard.yml@v1
-    # Default for `main` is the house convention: feat/, fix/, perf/, refactor/,
-    # chore/, ci/, hotfix/. Override `allowed-into-main` only if this repo differs —
-    # for example a repo that still keeps a develop integration branch.
+    # Defaults for both bases are the house convention: feat/, fix/, perf/, refactor/,
+    # chore/, ci/, hotfix/. Override only if this repo differs — for example one that
+    # promotes solely by PR from `staging`, which is `allowed-into-main: "staging"`.

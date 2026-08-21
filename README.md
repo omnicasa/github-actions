@@ -35,17 +35,38 @@ jobs:
     secrets: inherit
 ```
 
-That example is the no-staging shape (`templates/caller-deploy-no-staging.yml`). A repo
-with a staging cluster entry uses `templates/caller-deploy.yml` instead, which adds a
-`pull_request` trigger so the PR deploys to staging.
+That example is the no-staging shape (`templates/caller-deploy-no-staging.yml`).
 
 Plus `.github/workflows/branch-guard.yml`, `.github/deploy-manifest.yml` and
 `deploy/values.yaml`. Start from `templates/`, and follow
 [docs/onboarding.md](docs/onboarding.md).
 
-The branch flow is `{feat,fix,perf,refactor,chore,ci,hotfix}/* ─PR─> main`: the pull request
-deploys to staging, the merge deploys production. `main` is the only long-lived branch.
-[docs/multi-environment.md](docs/multi-environment.md) has the details.
+## The two branch flows
+
+**Four environments**, two long-lived branches — `templates/caller-deploy-4env.yml`:
+
+```
+feat/* ─PR─> staging ─merge─> ─PR─> main ─merge─>
+        dev           staging+      nothing   production
+                      prodtest
+```
+
+| Environment | Cluster | Namespace | Image |
+|---|---|---|---|
+| dev | stage-k8s | `dev-<app>` | `dev/<app>:<sha>` |
+| staging | stage-k8s | `<app>` | `staging/<app>:<sha>` |
+| prodtest | prod-k8s | `prodtest-<app>` | `staging/<app>:<sha>` — promoted, not rebuilt |
+| production | prod-k8s | `<app>` | `production/<app>:<sha>` |
+
+The namespaces and the promoted image path are conventions applied by the shared
+workflow; no app repo writes them down. Turn an environment off with
+`environments.<env>.enabled: false` in the manifest and its jobs skip green.
+
+**Two environments**, one long-lived branch — `templates/caller-deploy.yml`, unchanged
+and still current: `{feat,fix,perf,refactor,chore,ci,hotfix}/* ─PR─> main`, where the pull
+request deploys staging and the merge deploys production.
+
+[docs/multi-environment.md](docs/multi-environment.md) has the details of both.
 
 ## What is here
 
@@ -56,6 +77,7 @@ deploys to staging, the merge deploys production. `main` is the only long-lived 
 | `.github/workflows/branch-guard.yml` | Reusable branch-naming check for pull requests |
 | `actions/setup-cluster` | Pinned helm + kubectl + helm-diff, writes the kubeconfig |
 | `actions/ovh-ip-allowlist` | Adds/removes the runner IP on the OVH cluster allowlist |
+| `actions/resolve-target` | Manifest → is this environment on, what is it called, where does its image live |
 | `actions/render-values` | Turns the GitHub Environment into two Helm values files |
 | `actions/helm-deploy` | Ensure-ns, unstick, diff, `helm upgrade --atomic`, rollout status — **and carries the chart** |
 | `actions/helm-rollback` | `helm history` then `helm rollback` |

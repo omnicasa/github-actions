@@ -1,0 +1,42 @@
+name: Resolve deploy target
+description: Read the manifest and answer whether this environment is on, and what it is called.
+
+inputs:
+  environment:
+    description: Resolved environment name — selects the environments block and the conventions
+    required: true
+  manifest-path:
+    description: Path to the deploy manifest in the caller repo
+    required: false
+    default: .github/deploy-manifest.yml
+
+outputs:
+  enabled:
+    description: "'true' unless the manifest turned this environment off"
+    value: ${{ steps.resolve.outputs.enabled }}
+  app:
+    description: Helm release name and Deployment name
+    value: ${{ steps.resolve.outputs.app }}
+  namespace:
+    description: Target namespace, with the environment's convention prefix applied
+    value: ${{ steps.resolve.outputs.namespace }}
+  repository:
+    description: Registry repository the image is pushed to and pulled from
+    value: ${{ steps.resolve.outputs.repository }}
+  repository-prefix:
+    description: Registry path segment — the environment name, unless the image is promoted
+    value: ${{ steps.resolve.outputs.repository-prefix }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install PyYAML
+      shell: bash
+      run: python3 -m pip install --quiet --disable-pip-version-check pyyaml
+
+    - id: resolve
+      shell: bash
+      env:
+        DEPLOY_MANIFEST: ${{ inputs.manifest-path }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: python3 "${{ github.action_path }}/resolve.py"

@@ -1,0 +1,137 @@
+# Copy to .github/workflows/deploy.yml — the four-environment Omnicasa flow.
+#
+#   {feat,fix,perf,refactor,chore,ci,hotfix}/*  ─PR─>  staging      deploys DEV
+#   push to staging                                    deploys STAGING + PRODTEST
+#   {feat,fix,...}/*                            ─PR─>  main         deploys nothing
+#   push to main                                       deploys PRODUCTION
+#
+# A branch is merged twice. Into `staging` first: the PR deploys to dev, and the merge
+# fans out to staging (stage-k8s) and prodtest (prod-k8s) from ONE build. When both
+# look right, the same branch is PR'd into `main` and the merge releases production.
+# The promotion PR deploys nothing — that commit has already run in three environments,
+# and redeploying it to dev would clobber whatever the next feature is testing there.
+#
+#   environment  cluster     namespace          image
+#   dev          stage-k8s   dev-<app>          <registry>/dev/<app>:<sha>
+#   staging      stage-k8s   <app>              <registry>/staging/<app>:<sha>
+#   prodtest     prod-k8s    prodtest-<app>     <registry>/staging/<app>:<sha>   promoted
+#   production   prod-k8s    <app>              <registry>/production/<app>:<sha>
+#
+# Namespaces and the promoted image path are conventions, applied by the shared
+# workflow. Nothing here or in the manifest has to state them. Override one repo's
+# deviation in the manifest's `environments:` block; turn an environment off entirely
+# with `environments.<env>.enabled: false` and its jobs skip green.
+#
+# dev and staging are ONE SHARED RELEASE EACH. Two open PRs deploy over the same dev
+# release, last push wins — check the run's commit before testing.
+#
+# Use with templates/caller-branch-guard.yml and caller-rollback.yml — both serve either
+# flow unchanged. This deploy caller is the one file that forks, because it is the only
+# place the two flows disagree: here a PR into `main` deploys nothing, and on the
+# two-environment flow it deploys staging.
+#
+# Repos on the two-environment flow keep templates/caller-deploy.yml; it is not
+# superseded and needs no change.
+
+name: Deploy
+
+on:
+  pull_request:
+    branches:
+      - staging
+  push:
+    branches:
+      - staging
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prodtest
+          - production
+        required: true
+      dry-run:
+        description: "Render and diff against the live release, do not upgrade"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  # PR into staging. `environment` must be explicit: on a pull_request neither
+  # github.ref_name ("42/merge") nor github.head_ref ("feat/login") is an environment.
+  dev:
+    name: dev
+    if: github.event_name == 'pull_request' || inputs.environment == 'dev'
+    uses: omnicasa/github-actions/.github/workflows/deploy.yml@v1
+    with:
+      environment: dev
+      dry-run: ${{ inputs.dry-run == true }}
+    # Passes the repo, org and environment secrets through. The called workflow
+    # declares `environment:`, which is what makes the environment's secrets resolve.
+    secrets: inherit
+
+  # One build for the two environments below, so prod-k8s runs the exact bytes
+  # stage-k8s was tested on — and so they deploy in parallel instead of one waiting
+  # on the other's rollout. The image is pushed under the `staging` prefix; prodtest
+  # pulls from there rather than rebuilding the same commit under its own.
+  build:
+    name: build
+    if: >-
+      (github.event_name == 'push' && github.ref_name == 'staging')
+      || inputs.environment == 'staging'
+      || inputs.environment == 'prodtest'
+    uses: omnicasa/github-actions/.github/workflows/deploy.yml@v1
+    with:
+      environment: staging
+      build-only: true
+    secrets: inherit
+
+  staging:
+    name: staging
+    needs: build
+    if: >-
+      needs.build.result == 'success'
+      && ((github.event_name == 'push' && github.ref_name == 'staging')
+          || inputs.environment == 'staging')
+    uses: omnicasa/github-actions/.github/workflows/deploy.yml@v1
+    with:
+      environment: staging
+      build: false
+      image-tag: ${{ needs.build.outputs.image-tag }}
+      dry-run: ${{ inputs.dry-run == true }}
+    secrets: inherit
+
+  prodtest:
+    name: prodtest
+    needs: build
+    if: >-
+      needs.build.result == 'success'
+      && ((github.event_name == 'push' && github.ref_name == 'staging')
+          || inputs.environment == 'prodtest')
+    uses: omnicasa/github-actions/.github/workflows/deploy.yml@v1
+    with:
+      environment: prodtest
+      build: false
+      image-tag: ${{ needs.build.outputs.image-tag }}
+      dry-run: ${{ inputs.dry-run == true }}
+    secrets: inherit
+
+  # The merge into main IS the release. Production builds its own image under the
+  # `production` prefix: the commit on main is a different commit from the one on
+  # staging (different merge history), so there is no staging artifact to promote.
+  production:
+    name: production
+    if: >-
+      (github.event_name == 'push' && github.ref_name == 'main')
+      || inputs.environment == 'production'
+    uses: omnicasa/github-actions/.github/workflows/deploy.yml@v1
+    with:
+      environment: production
+      dry-run: ${{ inputs.dry-run == true }}
+    secrets: inherit
