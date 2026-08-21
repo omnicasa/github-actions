@@ -6,7 +6,62 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.7.0] — 2026-08-21
+
+### Added
+
+- **Manifest-driven docker build args.** A new `buildArgs:` block in
+  `.github/deploy-manifest.yml` resolves build inputs from the target GitHub
+  Environment, rendered by the new `actions/render-build-args` action inside the
+  deploy workflow's build job:
+  - `buildArgs.variables` → `--build-arg NAME=value`, read from `vars.*`
+  - `buildArgs.secrets` → buildx `--secret id=NAME`, read from `secrets.*` and mounted
+    as a file, so a credential the build genuinely needs is never written into the
+    image metadata or the GHA cache. Each name needs a matching
+    `RUN --mount=type=secret,id=<NAME>` in the app's Dockerfile.
+
+  This exists because a caller **cannot** do it: `jobs.<id>.environment` is not allowed
+  on a job that uses `uses:`, so every expression in that job's `with:` resolves at
+  repository and organization scope and an environment variable reads as empty. The
+  build job inside the reusable workflow does declare `environment:`, which is the only
+  place an environment-scoped build input can be resolved. Resolves the open question
+  in `docs/migration-backlog.md` item 2.
+
+  Existing repos are unaffected: a manifest with no `buildArgs` block renders nothing,
+  and the `build-args` workflow input keeps working — it is now merged with the
+  manifest's rather than replaced by it. On a name set in both the manifest wins, with
+  a warning, because only the manifest is resolved at the target environment's scope.
+
+### Changed
+
+- The `build-args` workflow input's description now states that it is evaluated in the
+  caller, so it is only useful for a value identical in every environment.
+- `scripts/validate-manifest.py` validates the new block: a name in both lists is an
+  error, and so is a name in `env.secrets` passed as a build arg *variable*. It also
+  reads the app's Dockerfile and **errors** when a declared `buildArgs.secrets` entry
+  has no matching `--mount=type=secret,id=<NAME>` — without the mount the value is
+  rendered, mounted and silently ignored, and the build succeeds without it. It warns
+  when the Dockerfile has no `# syntax=` directive, which secret mounts require.
+
+### Documentation
+
+- `docs/env-contract.md` gains a **Build-time vs deploy-time** section.
+- `docs/multi-environment.md` corrected: the OVH registry is **not** shared between
+  stage-k8s and prod-k8s on this estate. Each cluster has its own, which means
+  build-once-promote to `prodtest` needs a cross-registry mirror that does not exist
+  yet. The previous text claimed a single shared registry and only the path prefix
+  separating environments.
+
 ## [v1.6.1] — 2026-08-21
+
+### Documentation
+
+- `docs/onboarding.md` named the required status check **Branch guard**, which is the
+  workflow's `name:` and not a check that exists. A reusable workflow reports as
+  `<caller job> / <inner job name>`, so the string to require is `guard / Branch naming`.
+  Added a table of the real check names for every caller, and a note that renaming a
+  caller job renames its checks — which silently blocks every PR if that check was
+  required.
 
 ### Changed
 

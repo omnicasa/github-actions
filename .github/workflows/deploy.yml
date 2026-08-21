@@ -87,8 +87,16 @@ on:
         default: Dockerfile
       build-args:
         description: >-
-          Multiline KEY=value passed to docker build. NON-SECRET ONLY — build args are
-          recorded in the image metadata and readable by anyone who can pull it.
+          Multiline KEY=value passed to docker build, appended to whatever the
+          manifest's `buildArgs.variables` resolved. NON-SECRET ONLY — build args are
+          recorded in the image metadata and readable by anyone who can pull the image;
+          a credential the build genuinely needs goes in `buildArgs.secrets`, which
+          arrives as a buildx secret mount instead.
+
+          Only useful for a value that is the same in every environment. Anything
+          environment-scoped has to come from the manifest: this input is evaluated in
+          the CALLER, and a caller job that uses `uses:` cannot declare `environment:`,
+          so an environment variable read here is empty.
         type: string
         required: false
         default: ""
@@ -297,6 +305,23 @@ jobs:
           username: ${{ vars.OVH_REGISTRY_USERNAME }}
           password: ${{ secrets.OVH_REGISTRY_PASSWORD }}
 
+      # Resolved HERE and not in the caller because a caller cannot: a job that uses
+      # `uses:` may not declare `environment:`, so its `with:` sees repository and
+      # organization scope only and an environment variable reads as empty. This job
+      # does declare `environment:`, which is what makes the values below the target
+      # environment's.
+      - name: Render build args
+        id: build-args
+        uses: omnicasa/github-actions/actions/render-build-args@v1
+        with:
+          environment: ${{ inputs.environment || github.ref_name }}
+          manifest-path: ${{ inputs.manifest-path }}
+          vars-json: ${{ toJSON(vars) }}
+          secrets-json: ${{ toJSON(secrets) }}
+          # Merged inside the action rather than concatenated here: a `|` list built
+          # from two expressions leaves a blank line whenever either is empty.
+          extra-build-args: ${{ inputs.build-args }}
+
       - uses: docker/build-push-action@v6
         with:
           # Explicit, because the default context is the git ref — which ignores
@@ -308,10 +333,27 @@ jobs:
           # One immutable SHA tag. No `latest`: a floating tag makes "what is
           # running?" unanswerable and gives rollback no fixed target.
           tags: ${{ vars.OVH_REGISTRY }}/${{ needs.resolve.outputs.repository }}:${{ steps.tag.outputs.tag }}
-          build-args: ${{ inputs.build-args }}
+          # Already merged with `inputs.build-args` by the step above.
+          build-args: ${{ steps.build-args.outputs.build-args }}
+          # buildx secret mounts, from the manifest's buildArgs.secrets. Unlike a
+          # build arg these are never recorded in the image metadata or the cache,
+          # which is what makes them safe for a credential the build genuinely needs.
+          secret-files: ${{ steps.build-args.outputs.secret-files }}
           # Cache lives with the repo, so there is no registry cache image to garbage-collect.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # `always()`, because a failed build leaves the files behind just the same, and
+      # the runner is reused across jobs on self-hosted labels.
+      - name: Shred build secrets
+        if: always()
+        env:
+          SECRETS_DIR: ${{ runner.temp }}/build-secrets
+        run: |
+          set -euo pipefail
+          [ -d "$SECRETS_DIR" ] || exit 0
+          find "$SECRETS_DIR" -type f -exec shred -u {} + 2>/dev/null || true
+          rm -rf "$SECRETS_DIR"
 
   deploy:
     name: Deploy

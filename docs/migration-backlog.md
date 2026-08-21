@@ -1,7 +1,7 @@
 # Migration backlog
 
-`omnicasa-tools` is migrated. The other six are **not in scope** until someone decides
-otherwise — this file exists so that decision does not require re-deriving the analysis.
+`omnicasa-tools` and `omnicasa-email-editor` are migrated. The other five are **not in
+scope** until someone decides otherwise — this file exists so that decision does not require re-deriving the analysis.
 
 Ordered easiest first. The order is deliberate: consent-app second because its diff
 should be nearly empty, which tests the abstraction rather than the app.
@@ -22,16 +22,34 @@ the shared pipeline has drifted from the thing it was extracted from.
   committed lockfile). The shared `deploy.yml` currently only has a Dockerfile build
   job — **this repo needs a `build: gulp` path added first.**
 
-## 2. `omnicasa-email-editor`
+## 2. `omnicasa-email-editor` — **migrated**
 
-- Retire the old key names; move the pull secret from in-workflow creation to pre-created.
-- Needs build-time env baked into the image (`NEXT_PUBLIC_SUPABASE_URL`,
-  `NEXT_PUBLIC_*`, `SENTRY_AUTH_TOKEN`, `POSTHOG_*`) *and* the same values again at
-  deploy time. The workflow's `build-args` input covers the non-secret half.
-  **Open question:** `SENTRY_AUTH_TOKEN` is a credential and build args are readable by
-  anyone who can pull the image. Decide whether to use a buildx secret mount instead.
-- Domain is `emaileditor.${{ vars.BASE_DOMAIN }}` — the shared pipeline expects one
-  `domainVar` holding the full hostname, so a new `APP_DOMAIN` var is needed per environment.
+The open question here was how to get build-time env into the image. Answered by the
+manifest's `buildArgs:` block and `actions/render-build-args`, added for this migration:
+`buildArgs.variables` for the values a bundler inlines, `buildArgs.secrets` for a
+credential, as a buildx secret mount rather than a `--build-arg`. See
+[env-contract.md](env-contract.md#build-time-vs-deploy-time).
+
+What the migration did, recorded because the reasoning is not recoverable from the files:
+
+- Build args went from twelve to five. Seven were server-only credentials
+  (`KEYVAULT_URI`, `AZURE_*`, `SUPABASE_SERVICE_ROLE`, `POSTHOG_*`) that the app already
+  reads from `process.env` at request time — they had never needed baking, and dropping
+  them takes `SUPABASE_SERVICE_ROLE` and `AZURE_CLIENT_SECRET` out of image metadata.
+- The four `NEXT_PUBLIC_*` keys stayed build args: Next.js inlines that prefix into the
+  client bundle, and `lib/supabase/supabase.ts` is imported by 17 modules. Moving them to
+  runtime means renaming them off the prefix and injecting the browser-facing subset at
+  request time — a real refactor, deliberately deferred.
+- `SENTRY_AUTH_TOKEN` is the fifth. It cannot move to runtime at all — the Sentry webpack
+  plugin uploads source maps during `next build` — so it is a `buildArgs.secrets` entry.
+- `domainVar: APP_DOMAIN` replaces `emaileditor.${{ vars.BASE_DOMAIN }}`, with
+  `NEXT_PUBLIC_APP_URL` derived from it.
+- `dev` and `prodtest` ship `enabled: false`. dev has no namespace yet; prodtest cannot
+  promote, for two independent reasons — the separate per-cluster registries, and the
+  per-environment configuration baked into the image by the four build args above.
+
+**Still open:** the image stays environment-specific until those four move to runtime,
+so staging and production build the same commit twice.
 
 ## 3. `omnicasa-webhook`
 

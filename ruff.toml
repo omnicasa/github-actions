@@ -33,5 +33,9 @@ ignore = [
 #   A mkstemp name cannot be used here because helm needs the path passed as `-f`, and
 #   the diff and the upgrade must be handed the identical filenames.
 "actions/render-values/render-values.py" = ["S108"]
+# S108 again, and the same reasoning: /tmp is only reached when RUNNER_TEMP is unset,
+# i.e. never on a runner. The files are mode 0600 in a 0700 directory and the build
+# job shreds them under `if: always()`.
+"actions/render-build-args/render-build-args.py" = ["S108"]
 "actions/resolve-target/target.py" = ["BLE001"]
 "scripts/validate-manifest.py" = ["BLE001"]

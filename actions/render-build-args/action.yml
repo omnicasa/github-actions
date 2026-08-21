@@ -1,0 +1,67 @@
+name: Render docker build args
+description: Turn the GitHub Environment into the build args and secret mounts docker consumes.
+
+inputs:
+  environment:
+    description: Resolved environment name — selects which Environment's vars and secrets apply
+    required: true
+  # NOTE: no GitHub expressions anywhere in this file outside `runs:`. The runner
+  # evaluates input descriptions too, and a composite action's manifest has neither
+  # `vars` nor `secrets` in scope — writing the expression here as documentation
+  # fails the whole action to load with "Unrecognized named-value: 'vars'".
+  vars-json:
+    description: >-
+      The caller's whole vars context, serialised — pass toJSON(vars) from the workflow.
+    required: true
+  secrets-json:
+    description: >-
+      The caller's whole secrets context, serialised — pass toJSON(secrets) from the
+      workflow. Passed wholesale on purpose: the manifest allowlists what the build
+      actually gets, so adding one is a line in the app repo and never a change here.
+      Keys not on the allowlist — including github_token — are ignored outright.
+    required: true
+  manifest-path:
+    description: Path to the deploy manifest in the caller repo
+    required: false
+    default: .github/deploy-manifest.yml
+  extra-build-args:
+    description: >-
+      The deploy workflow's own build-args input, merged into the rendered list so
+      docker receives one clean block rather than two that may each be empty. The
+      manifest wins on a name set in both, because it is the one resolved at the
+      target environment's scope.
+    required: false
+    default: ""
+  secrets-dir:
+    description: >-
+      Directory the build secrets are written into, verbatim. Defaults to
+      RUNNER_TEMP/build-secrets, which is the exact path the deploy workflow's shred
+      step removes — override both together or not at all.
+    required: false
+    default: ""
+
+outputs:
+  build-args:
+    description: Multiline KEY=value for docker/build-push-action's build-args
+    value: ${{ steps.render.outputs.build-args }}
+  secret-files:
+    description: Multiline id=KEY,src=PATH for docker/build-push-action's secret-files
+    value: ${{ steps.render.outputs.secret-files }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install PyYAML
+      shell: bash
+      run: python3 -m pip install --quiet --disable-pip-version-check pyyaml
+
+    - id: render
+      shell: bash
+      env:
+        DEPLOY_MANIFEST: ${{ inputs.manifest-path }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        VARS_JSON: ${{ inputs.vars-json }}
+        SECRETS_JSON: ${{ inputs.secrets-json }}
+        SECRETS_DIR: ${{ inputs.secrets-dir }}
+        EXTRA_BUILD_ARGS: ${{ inputs.extra-build-args }}
+      run: python3 "${{ github.action_path }}/render-build-args.py"

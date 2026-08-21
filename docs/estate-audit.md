@@ -3,8 +3,8 @@
 Snapshot taken August 2026, before any migration. Recorded so a future migration starts
 from fact rather than from re-reading seven pipelines.
 
-Only `omnicasa-tools` has been migrated. Everything below describes the other six as
-they still are.
+`omnicasa-tools` and `omnicasa-email-editor` have been migrated. Everything below
+describes the estate as it was at the snapshot, email-editor's row included.
 
 ## The numbers
 

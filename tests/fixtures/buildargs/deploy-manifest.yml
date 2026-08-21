@@ -1,0 +1,36 @@
+# Fixture for the render-build-args action. Shaped after omnicasa-email-editor, the
+# first repo to need build args: a bundler that inlines a public env prefix at build
+# time, plus one build-time-only credential.
+app: fixture-app
+namespace: fixture-app
+
+build: dockerfile
+workingDirectory: .
+
+domainVar: APP_DOMAIN
+ingress:
+  managed: true
+
+required:
+  - APP_DOMAIN
+
+env:
+  variables:
+    - PUBLIC_API_URL
+  secrets:
+    - PUBLIC_ANON_KEY
+    - SERVER_ONLY_TOKEN
+
+buildArgs:
+  variables:
+    - PUBLIC_API_URL
+  secrets:
+    # Inlined into the client bundle, so public by construction — the mount keeps it
+    # out of the image metadata and the build cache, not out of the browser.
+    - PUBLIC_ANON_KEY
+    # Genuinely build-time: consumed by the bundler, never by the running app.
+    - BUILD_UPLOAD_TOKEN
+
+environments:
+  dev:
+    enabled: false
