@@ -40,6 +40,7 @@ jobs:
           set -euo pipefail
           python3 -m pip install --quiet ruff pyyaml
           files="actions/render-values/render-values.py
+          actions/render-build-args/render-build-args.py
           actions/resolve-target/target.py
           actions/resolve-target/resolve.py
           scripts/validate-manifest.py"
@@ -169,6 +170,113 @@ jobs:
           print("commas and JSON survived intact; derived value on the variables side")
           PY
           rm -f /tmp/*-values.json
+
+      - name: Render build args with planted secrets, assert none appear
+        run: |
+          set -euo pipefail
+          # Same contract as the block above: this script is handed the whole secrets
+          # context, so one careless print leaks everything.
+          export VARS_JSON='{"PUBLIC_API_URL":"https://api.example.com","APP_DOMAIN":"a.example"}'
+          export SECRETS_JSON='{"PUBLIC_ANON_KEY":"CANARY_ANON","BUILD_UPLOAD_TOKEN":"CANARY_UPLOAD","SERVER_ONLY_TOKEN":"CANARY_SERVER","github_token":"CANARY_TOKEN"}'
+          export ENVIRONMENT=production
+          export DEPLOY_MANIFEST=tests/fixtures/buildargs/deploy-manifest.yml
+          export SECRETS_DIR=/tmp/build-secrets
+          export GITHUB_OUTPUT=/tmp/build-args-output.txt
+          : > "$GITHUB_OUTPUT"
+
+          python3 actions/render-build-args/render-build-args.py > /tmp/build-args.log 2>&1
+          cat /tmp/build-args.log
+
+          if grep -qE 'CANARY_ANON|CANARY_UPLOAD|CANARY_SERVER|CANARY_TOKEN' /tmp/build-args.log; then
+            echo "::error::render-build-args.py printed a secret value"; exit 1
+          fi
+
+          # A build arg IS recorded in the image metadata, so the step output is the
+          # one place a value legitimately appears — but only for the variables side.
+          # A secret must reach the build as a file path and nothing else.
+          if grep -qE 'CANARY_ANON|CANARY_UPLOAD|CANARY_SERVER|CANARY_TOKEN' "$GITHUB_OUTPUT"; then
+            echo "::error::a build secret value reached the step output"; exit 1
+          fi
+
+          # SERVER_ONLY_TOKEN is in env.secrets but not in buildArgs — it must not be
+          # written out at all. This is the check that keeps the build surface minimal.
+          if [ -e /tmp/build-secrets/SERVER_ONLY_TOKEN ] || [ -e /tmp/build-secrets/github_token ]; then
+            echo "::error::a secret outside the buildArgs allowlist was written"; exit 1
+          fi
+
+          for name in PUBLIC_ANON_KEY BUILD_UPLOAD_TOKEN; do
+            test -f "/tmp/build-secrets/$name" \
+              || { echo "::error::$name was not written"; exit 1; }
+            # 0600 in a 0700 dir. buildx reads them as the same user.
+            test "$(stat -c '%a' "/tmp/build-secrets/$name")" = "600" \
+              || { echo "::error::$name is not mode 0600"; exit 1; }
+            # `cat` in the Dockerfile means a trailing newline silently corrupts a
+            # token. Command substitution strips a trailing newline, so an empty
+            # result here means the file ended with one.
+            test -n "$(tail -c1 "/tmp/build-secrets/$name")" \
+              || { echo "::error::$name ends with a newline"; exit 1; }
+          done
+
+          grep -q 'PUBLIC_API_URL=https://api.example.com' "$GITHUB_OUTPUT" \
+            || { echo "::error::build arg variable missing from the output"; exit 1; }
+          echo "build args rendered; no secret value left the file mounts"
+
+          shred -u /tmp/build-secrets/* && rm -rf /tmp/build-secrets
+          rm -f /tmp/build-args-output.txt /tmp/build-args.log
+
+      - name: The build-args input still works, and the manifest outranks it
+        run: |
+          set -euo pipefail
+          export ENVIRONMENT=production SECRETS_DIR=/tmp/build-secrets-merge
+          export VARS_JSON='{"PUBLIC_API_URL":"https://api.example.com","APP_DOMAIN":"a.example"}'
+          export SECRETS_JSON='{"PUBLIC_ANON_KEY":"k","BUILD_UPLOAD_TOKEN":"t"}'
+
+          # Back-compat: a repo with no buildArgs block that passes the workflow input
+          # must still get its build arg. This is every repo that existed before the
+          # manifest block was added.
+          export DEPLOY_MANIFEST=tests/fixtures/omnicasa-tools/deploy-manifest.yml
+          export EXTRA_BUILD_ARGS='NODE_ENV=production'
+          export GITHUB_OUTPUT=/tmp/merge-output.txt; : > "$GITHUB_OUTPUT"
+          python3 actions/render-build-args/render-build-args.py
+          grep -q 'NODE_ENV=production' "$GITHUB_OUTPUT" \
+            || { echo "::error::the build-args input was dropped"; exit 1; }
+
+          # Precedence: only the manifest is resolved at the target environment's
+          # scope, so on a collision it wins and the caller is told to drop its copy.
+          export DEPLOY_MANIFEST=tests/fixtures/buildargs/deploy-manifest.yml
+          export EXTRA_BUILD_ARGS='PUBLIC_API_URL=https://stale.example'
+          : > "$GITHUB_OUTPUT"
+          python3 actions/render-build-args/render-build-args.py > /tmp/merge.log 2>&1
+          cat /tmp/merge.log
+          grep -q 'PUBLIC_API_URL=https://api.example.com' "$GITHUB_OUTPUT" \
+            || { echo "::error::the manifest did not override the input"; exit 1; }
+          if grep -q 'stale.example' "$GITHUB_OUTPUT"; then
+            echo "::error::the stale caller value survived"; exit 1
+          fi
+          echo "back-compat holds and the manifest outranks the input"
+
+          rm -rf /tmp/build-secrets-merge /tmp/merge-output.txt /tmp/merge.log
+
+      - name: A build arg variable stored as a secret is refused
+        run: |
+          set -euo pipefail
+          # A build arg is published in the image metadata. Storing one as a secret
+          # gets it masked in the log while it is written into the image anyway —
+          # the worst of both, so this fails rather than warns.
+          export VARS_JSON='{"APP_DOMAIN":"a.example"}'
+          export SECRETS_JSON='{"PUBLIC_API_URL":"CANARY_MISFILED","PUBLIC_ANON_KEY":"k","BUILD_UPLOAD_TOKEN":"t"}'
+          export ENVIRONMENT=production
+          export DEPLOY_MANIFEST=tests/fixtures/buildargs/deploy-manifest.yml
+          export SECRETS_DIR=/tmp/build-secrets-refused
+
+          if python3 actions/render-build-args/render-build-args.py > /tmp/refused.log 2>&1; then
+            echo "::error::a secret passed as a build arg variable was accepted"; exit 1
+          fi
+          cat /tmp/refused.log
+          if grep -q 'CANARY_MISFILED' /tmp/refused.log; then
+            echo "::error::the refusal printed the value"; exit 1
+          fi
+          rm -rf /tmp/build-secrets-refused /tmp/refused.log
 
   manifest:
     name: Validate manifests
@@ -381,9 +489,27 @@ jobs:
       - name: Install kubeconform
         run: |
           set -euo pipefail
-          curl -sfL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
-            | tar xz kubeconform
-          sudo mv kubeconform /usr/local/bin/
+          # Not Dependabot-managed: this is a URL, not a `uses:`, so it drifts silently.
+          version=v0.6.7
+          sha256=95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73
+          url="https://github.com/yannh/kubeconform/releases/download/${version}/kubeconform-linux-amd64.tar.gz"
+
+          # Download to a FILE, never straight into tar. `curl -f` writes nothing at all
+          # on an HTTP error, so a failed fetch reaches tar as an empty stream and it
+          # reports "gzip: stdin: unexpected end of file" — blaming the archive for what
+          # was a transient 5xx from the release CDN. That happened on a docs-only PR.
+          # --retry alone covers timeouts and 5xx, which is the failure seen. Not
+          # --retry-all-errors: that needs curl 7.71+, and pinning CI to a curl feature
+          # is a second thing to be wrong about.
+          curl -sSfL --retry 5 --retry-delay 2 -o /tmp/kubeconform.tar.gz "$url"
+
+          # Also turns a truncated or substituted download into a clear failure rather
+          # than a confusing tar error.
+          echo "$sha256  /tmp/kubeconform.tar.gz" | sha256sum -c -
+
+          tar -xzf /tmp/kubeconform.tar.gz kubeconform
+          sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
+          kubeconform -v
 
       - name: Validate against the cluster's Kubernetes version
         run: |

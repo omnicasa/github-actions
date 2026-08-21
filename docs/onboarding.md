@@ -72,6 +72,13 @@ The decision that matters is the variable/secret split. Get it right in both dir
 a credential as a variable leaks it into the log, and a hostname as a secret makes a
 failed deploy undiagnosable because the log shows `***` where you need to read a value.
 
+If the app needs anything while the image is *built* — a bundler that inlines a public
+env prefix, a credential a build step authenticates with — that goes in the same file
+under `buildArgs:`, not in the caller. A caller cannot resolve an environment-scoped
+value at all; see [env-contract.md](env-contract.md#build-time-vs-deploy-time). Prefer
+runtime configuration where the app allows it: a baked value pins the image to one
+environment and rules out build-once-promote.
+
 Validate before going further:
 
 ```bash
@@ -109,7 +116,7 @@ deploy anything.
 
 Then, in the repo's settings — four-environment flow:
 
-- Make **Branch guard** a required status check on `staging` **and** on `main`.
+- Make `guard / Branch naming` a required status check on `staging` **and** on `main`.
 - Require pull requests on both. The guard only runs on `pull_request`, so a direct push
   bypasses it entirely — and a direct push to `staging` deploys prod-k8s.
 - Back both with a GitHub ruleset. A status check explains the rule; a ruleset enforces
@@ -120,6 +127,31 @@ Then, in the repo's settings — four-environment flow:
 
 Two-environment flow: the same, with `main` as the only guarded base, `staging` set to
 All branches, and `production` restricted to `main`.
+
+### What the checks are actually called
+
+A reusable workflow does not report under its own `name:`. Each of its jobs reports as
+`<caller job> / <job name inside the reusable workflow>`, and it is the **left** half you
+control — it is the job id in your caller, or that job's `name:` if it has one. So the
+strings to type into the required-checks box are:
+
+| Caller | Appears in checks as |
+|---|---|
+| `caller-branch-guard.yml`, job `guard` | `guard / Branch naming` |
+| `caller-deploy.yml`, job `deploy` | `deploy / Resolve target`, `deploy / Build & push`, `deploy / Deploy` |
+| `caller-deploy-4env.yml`, job `dev` | `dev / Resolve target`, `dev / Build & push`, `dev / Deploy` |
+| ...and the same three under `build`, `staging`, `prodtest`, `production` |
+
+Two consequences worth knowing before you configure branch protection:
+
+- **Renaming a caller job renames its checks.** If that check was required, it stops
+  reporting and every PR blocks until someone updates the setting. This is why the
+  template job ids are left alone even where a prettier name was available — an estate
+  where half the repos say `guard` and half say `Branch guard` is the confusion this
+  naming is meant to prevent.
+- **The `build` job in the four-environment caller shows a skipped `build / Deploy`.** It
+  calls the same reusable workflow with `build-only: true`, so the deploy job is
+  evaluated and skipped. That is correct, not a failure.
 
 ### 4. Prove the migration before it can do damage
 

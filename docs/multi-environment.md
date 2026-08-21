@@ -105,9 +105,18 @@ Two things follow, and both are the point:
   expresses this with a `build-only: true` job whose `image-tag` output both deploy jobs
   consume.
 
-The cost: the pull secret in `prodtest-<app>` must be able to read the `staging/` path in
-the registry. The registry is shared across clusters, so this is a permission on the
-registry user, not a network question.
+The cost: the pull secret in `prodtest-<app>` must be able to read the `staging/` path —
+and that path is in the **stage-k8s registry**, which is a different registry from the
+one prod-k8s pulls from. So promotion needs either a pull secret in `prodtest-<app>`
+holding stage-registry credentials, or the image mirrored across registries after the
+build. **Neither exists on this estate today**, which is why no repo has prodtest
+enabled yet.
+
+A second thing can rule promotion out independently of the registry: an image built with
+`buildArgs` carries one environment's configuration baked in, so promoting it puts
+staging's configuration on prod-k8s. An app in that position should keep
+`environments.prodtest.enabled: false` until the value moves to runtime. See
+[env-contract.md](env-contract.md#build-time-vs-deploy-time).
 
 `production` does **not** promote. The commit on `main` is a different commit from the
 one on `staging` — different merge history, different SHA — so there is no staging
@@ -226,9 +235,11 @@ Consequences:
   Four environments means four kubeconfigs.
 - `OVH_KUBERNETES_ID` is per **cluster**, so dev and staging share a value, and prodtest
   and production share the other. It is still set per environment; the two just match.
-- The registry is **shared**; environments are separated only by the path prefix. So
-  `OVH_REGISTRY`, `OVH_REGISTRY_USERNAME` and `OVH_REGISTRY_PASSWORD` can be org- or
-  repo-level.
+- The registry is **not** shared. stage-k8s and prod-k8s each have their own OVH
+  registry, so `OVH_REGISTRY` — and the username and password with it — is an
+  **environment**-scoped value like `KUBECONFIG_BASE64`, not an org- or repo-level one.
+  dev and staging carry one registry's values, prodtest and production the other.
+  Within a registry, environments are still separated only by the path prefix.
 
 ## Environments that deviate
 

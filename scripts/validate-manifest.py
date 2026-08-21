@@ -37,6 +37,7 @@ except ImportError:  # pragma: no cover - only when run outside this repo
 KNOWN_TOP_LEVEL = {
     "app", "namespace", "build", "workingDirectory", "domainVar", "tlsSecretName",
     "ingress", "required", "env", "environments", "repositoryPrefix",
+    "buildArgs",
     "helmValues",
     # Top level, this pauses every environment at once — a one-line way to stop a
     # repo deploying during an incident without deleting the workflow. Per
@@ -58,6 +59,51 @@ def err(msg: str) -> None:
 
 def warn(msg: str) -> None:
     warnings.append(msg)
+
+
+def check_secret_mounts(path: Path, data: dict, names: list[str]) -> None:
+    """Confirm the Dockerfile mounts every declared build secret.
+
+    The manifest lives at <repo>/.github/deploy-manifest.yml and the build context
+    defaults to the repo root, so the Dockerfile is findable from here in the normal
+    layout. When it is not — a manifest passed from somewhere else, a custom
+    `dockerfile:` input on the caller — fall back to an advisory warning rather than
+    guessing, because a false ERROR here would block a correct repo.
+    """
+    repo_root = path.resolve().parent.parent
+    working_dir = str(data.get("workingDirectory") or ".").strip() or "."
+    dockerfile = repo_root / working_dir / "Dockerfile"
+    if not dockerfile.is_file():
+        warn(
+            f"{path}: could not find {dockerfile} to check that buildArgs.secrets are "
+            "mounted — confirm by hand that the Dockerfile has "
+            "`RUN --mount=type=secret,id=<NAME>` for: " + ", ".join(names)
+        )
+        return
+
+    try:
+        content = dockerfile.read_text()
+    except OSError as exc:
+        warn(f"{path}: could not read {dockerfile}: {exc}")
+        return
+
+    missing = [n for n in names if f"id={n}" not in content]
+    if missing:
+        err(
+            f"{path}: buildArgs.secrets declares {', '.join(missing)} but "
+            f"{dockerfile.name} has no `--mount=type=secret,id=<NAME>` for it — the "
+            "value would be rendered and then ignored, and the build would succeed "
+            "without it"
+        )
+
+    # A secret mount needs BuildKit's dockerfile frontend. Without the directive an
+    # older builder rejects the syntax outright, which at least fails loudly — but
+    # buildx defaults vary, so say it here rather than at 3am.
+    if not content.lstrip().startswith("# syntax="):
+        warn(
+            f"{path}: {dockerfile.name} uses secret mounts but has no `# syntax=` "
+            "directive on line 1; add `# syntax=docker/dockerfile:1.7`"
+        )
 
 
 def check(path: Path) -> None:
@@ -146,6 +192,54 @@ def check(path: Path) -> None:
             )
         if name in declared:
             err(f"{path}: env.derived.{name} is also declared in env.variables/secrets")
+
+    build_args = data.get("buildArgs") or {}
+    if not isinstance(build_args, dict):
+        err(f"{path}: 'buildArgs' must be a mapping")
+        build_args = {}
+    for key in sorted(set(build_args) - {"variables", "secrets"}):
+        warn(f"{path}: unknown key 'buildArgs.{key}' (typo? it will be ignored)")
+
+    build_arg_vars = build_args.get("variables") or []
+    build_arg_secrets = build_args.get("secrets") or []
+    for field, value in (
+        ("buildArgs.variables", build_arg_vars),
+        ("buildArgs.secrets", build_arg_secrets),
+    ):
+        if not isinstance(value, list):
+            err(f"{path}: '{field}' must be a list")
+            continue
+        for name in value:
+            if not ENV_NAME.match(str(name)):
+                err(f"{path}: {field} contains an invalid build arg name: {name!r}")
+        dupes = {n for n in value if list(value).count(n) > 1}
+        if dupes:
+            warn(f"{path}: {field} lists duplicates: {', '.join(sorted(dupes))}")
+
+    if isinstance(build_arg_vars, list) and isinstance(build_arg_secrets, list):
+        # The two reach the Dockerfile by different mechanisms — an ARG versus a file
+        # under /run/secrets — so a name in both means the Dockerfile can only be
+        # right about one of them.
+        overlap = sorted(set(build_arg_vars) & set(build_arg_secrets))
+        if overlap:
+            err(
+                f"{path}: declared as both a build arg variable and a build arg secret: "
+                f"{', '.join(overlap)} — pick one"
+            )
+        # A build arg is recorded in the image metadata and the build cache. Anything
+        # the app also treats as a secret must not go through that path.
+        leaked = sorted(set(build_arg_vars) & set(secrets or []))
+        if leaked:
+            err(
+                f"{path}: {', '.join(leaked)} is in env.secrets but passed as a build "
+                "arg variable — build args are readable by anyone who can pull the "
+                "image; move it to buildArgs.secrets"
+            )
+        # Every buildArgs.secrets entry needs a matching RUN --mount=type=secret,id=<NAME>
+        # in the Dockerfile, or the value is rendered, mounted and then silently
+        # ignored — a green build producing an image built without it.
+        if build_arg_secrets:
+            check_secret_mounts(path, data, sorted(build_arg_secrets))
 
     domain_var = data.get("domainVar")
     required = data.get("required") or []

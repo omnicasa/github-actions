@@ -24,9 +24,14 @@ already the standard kubectl/helm variable holding a *file path* (`/tmp/kubeconf
 Reusing one name for both is how older repos ended up with a kubeconfig-shaped string
 where a path was expected.
 
-These are candidates for **org-level** variables and secrets with a repo access list.
-Set that way, onboarding a repo needs only `KUBECONFIG_BASE64`, `IMAGE_PULL_SECRET_NAME`
-and the app's own keys — and rotating the OVH credentials is one edit instead of seven.
+`OVH_PROJECT_ID` and the three `OVH_GA_*` keys are identical everywhere and are
+candidates for **org-level** variables and secrets with a repo access list — rotating
+the OVH API credentials is then one edit instead of seven.
+
+The registry trio is **not**. stage-k8s and prod-k8s have separate OVH registries, so
+`OVH_REGISTRY`, `OVH_REGISTRY_USERNAME` and `OVH_REGISTRY_PASSWORD` differ by cluster and
+belong at environment scope like everything else that differs — see the rule below about
+one scope per key.
 
 `KUBECONFIG_BASE64` is per **environment**, not per cluster: it holds the per-namespace
 ServiceAccount's kubeconfig, so `dev` and `staging` need different ones even though both
@@ -35,7 +40,9 @@ environments, four kubeconfigs.
 
 `OVH_KUBERNETES_ID` is per **cluster**, so on the four-environment flow dev and staging
 carry the same value and prodtest and production carry the other. It is still set on each
-environment; the two just match.
+environment; the two just match. `OVH_REGISTRY`, `OVH_REGISTRY_USERNAME` and
+`OVH_REGISTRY_PASSWORD` are per cluster the same way — each cluster has its own registry,
+which is also why an image built for stage-k8s cannot simply be promoted to prod-k8s.
 
 ## var or secret?
 
@@ -69,9 +76,9 @@ name.
 
 | Scope | What belongs here |
 |---|---|
-| **Organization** | `OVH_REGISTRY`, `OVH_REGISTRY_USERNAME`, `OVH_REGISTRY_PASSWORD`, `OVH_PROJECT_ID`, `OVH_GA_*` — identical everywhere, and rotating them is then one edit instead of seven |
+| **Organization** | `OVH_PROJECT_ID`, `OVH_GA_*` — identical everywhere, and rotating them is then one edit instead of seven |
 | **Repository** | almost nothing — see below |
-| **Environment** | `KUBECONFIG_BASE64`, `OVH_KUBERNETES_ID`, `IMAGE_PULL_SECRET_NAME`, and every app variable and secret |
+| **Environment** | `KUBECONFIG_BASE64`, `OVH_KUBERNETES_ID`, `IMAGE_PULL_SECRET_NAME`, the `OVH_REGISTRY` trio, and every app variable and secret |
 
 ### One scope per key, all four environments or none
 
@@ -137,6 +144,76 @@ Two rules the renderer enforces:
 
 Anything in the `secrets` context but absent from the manifest allowlist is ignored
 outright, `github_token` included.
+
+## Build-time vs deploy-time
+
+Everything above describes values handed to a *running* pod. Some apps also need a value
+while the image is being built — most often a frontend bundler that inlines a public env
+prefix, or a credential a build step authenticates with. That is a different mechanism
+with a different failure mode, and it is declared separately, in the manifest's
+`buildArgs:` block.
+
+### Why a caller cannot pass one
+
+`jobs.<id>.environment` is not allowed on a job that uses `uses:`. So every expression in
+a caller's `with:` — including `build-args` — resolves at **repository and organization
+scope only**, and an environment-scoped variable read there is the empty string. Not an
+error, not a warning: empty.
+
+The build job inside the shared workflow *does* declare `environment:`, which is what
+makes `vars` and `secrets` there the target environment's. `actions/render-build-args`
+runs in that job and reads the manifest, which is why the allowlist lives in the manifest
+rather than the caller:
+
+```yaml
+buildArgs:
+  variables:            # -> --build-arg NAME=value, from vars.*
+    - PUBLIC_API_URL
+  secrets:              # -> buildx --secret id=NAME, from secrets.*
+    - NPM_TOKEN
+```
+
+The workflow's `build-args` input still works and is appended to, not replaced. Use it
+only for a value that is identical in every environment.
+
+### variables or secrets?
+
+Not the same question as the var/secret split above, and the answer is stricter.
+
+A `--build-arg` is recorded in the image metadata and the build cache. Anyone who can
+pull the image can read it. So `buildArgs.variables` is for values that are already
+public once the image ships — a hostname, a public API URL, a publishable client key.
+A name that is in `env.secrets` and in `buildArgs.variables` is a hard failure, and so
+is a name stored as a `secret` but declared as a build-arg variable: masked in the log
+while written into the image is the worst of both.
+
+`buildArgs.secrets` is a buildx secret mount: a file present for the life of one `RUN`,
+recorded in no layer, no metadata and no cache entry. It needs a matching line in the
+app's Dockerfile, which is the one part the manifest cannot do for you:
+
+```dockerfile
+# syntax=docker/dockerfile:1.7
+RUN --mount=type=secret,id=NPM_TOKEN \
+    NPM_TOKEN="$(cat /run/secrets/NPM_TOKEN)" npm ci
+```
+
+Read the mounted file with `cat` and no trimming — the renderer writes the value with no
+trailing newline on purpose, because a newline inside a token is invisible in a log and
+breaks whatever the token authenticates.
+
+### What a build arg costs, every time
+
+A baked value pins the image to one environment. Two consequences follow, and neither is
+recoverable later without changing the app:
+
+- staging and production **build the same commit twice**, and two builds of one commit
+  are only presumed identical.
+- **build-once-promote is off the table** for that app. `prodtest` exists to run the
+  exact bytes staging tested; it cannot, if those bytes carry staging's configuration.
+
+So the order of preference is: read it at runtime from the ConfigMap or Secret; if the
+build truly cannot defer it, `buildArgs`; and if it is a credential, `buildArgs.secrets`.
+A value read at runtime also changes with a `helm upgrade` instead of a rebuild.
 
 ## Per-environment values
 

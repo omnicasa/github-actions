@@ -81,6 +81,35 @@ env:
   derived: {}
   # APP_PUBLIC_URL: "https://${APP_DOMAIN}"
 
+# What the IMAGE BUILD needs, as opposed to what the running app needs. Most repos
+# have none of this: prefer configuring the app at runtime, which `env:` above already
+# does. Reach for this only for a value the build genuinely cannot defer — anything a
+# bundler inlines, most commonly a frontend framework's public env prefix.
+#
+# WHY THIS IS HERE AND NOT IN THE CALLER. A caller job that uses `uses:` may not
+# declare `environment:`, so every expression in its `with:` resolves at repository and
+# organization scope and an environment variable reads as empty. The build job inside
+# the shared workflow does declare `environment:`, so this is the only place an
+# environment-scoped build input can be resolved at all.
+#
+# WHAT IT COSTS. A baked value pins the image to one environment: two environments then
+# build the same commit twice, and build-once-promote — which is what lets prodtest run
+# the exact bytes staging tested — stops being possible for this app.
+buildArgs:
+  # -> --build-arg NAME=value, read from `vars.*`. Recorded in the image metadata and
+  # the build cache, so readable by anyone who can pull the image. Non-credentials only;
+  # a name also listed in env.secrets is a hard failure.
+  variables: []
+  # - NEXT_PUBLIC_API_URL
+
+  # -> buildx `--secret id=NAME`, read from `secrets.*`. Mounted as a file for the life
+  # of one RUN and recorded nowhere. Each name needs a matching line in the Dockerfile:
+  #
+  #   RUN --mount=type=secret,id=NPM_TOKEN \
+  #       NPM_TOKEN="$(cat /run/secrets/NPM_TOKEN)" npm ci
+  secrets: []
+  # - NPM_TOKEN
+
 # Migrations are NOT configured here. The chart reads `migration.*` straight from
 # deploy/values.yaml, so putting it in both files would mean two switches with no
 # sync between them — and only the values.yaml one would take effect.
