@@ -22,7 +22,7 @@ jobs:
     name: Lint workflows and scripts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: actionlint
         uses: docker://rhysd/actionlint:1.7.7
@@ -111,7 +111,7 @@ jobs:
     name: Renderer never prints a value
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 -m pip install --quiet pyyaml
 
       - name: Render with planted secrets, assert none appear
@@ -174,7 +174,7 @@ jobs:
     name: Validate manifests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 -m pip install --quiet pyyaml
       - run: python3 scripts/validate-manifest.py templates/deploy-manifest.yml
       - run: python3 scripts/validate-manifest.py tests/fixtures/*/deploy-manifest.yml
@@ -247,7 +247,7 @@ jobs:
     name: Chart lint and golden render
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: azure/setup-helm@v4.2.0
         with:
@@ -372,7 +372,7 @@ jobs:
     name: Rendered manifests are valid Kubernetes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: azure/setup-helm@v4.2.0
         with:

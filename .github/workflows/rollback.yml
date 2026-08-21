@@ -53,7 +53,7 @@ jobs:
     outputs:
       revision: ${{ steps.rollback.outputs.revision }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup cluster tooling
         uses: omnicasa/github-actions/actions/setup-cluster@v1
