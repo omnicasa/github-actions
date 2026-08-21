@@ -322,7 +322,7 @@ jobs:
           # from two expressions leaves a blank line whenever either is empty.
           extra-build-args: ${{ inputs.build-args }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           # Explicit, because the default context is the git ref — which ignores
           # anything a previous step generated in the workspace.
