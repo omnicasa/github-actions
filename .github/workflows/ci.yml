@@ -219,7 +219,19 @@ jobs:
 
           grep -q 'PUBLIC_API_URL=https://api.example.com' "$GITHUB_OUTPUT" \
             || { echo "::error::build arg variable missing from the output"; exit 1; }
-          echo "build args rendered; no secret value left the file mounts"
+
+          # docker/build-push-action's secret-files takes NAME=PATH. The buildx CLI
+          # form id=NAME,src=PATH only produces a WARNING there — the build then runs
+          # with the mount empty and fails much later, somewhere unrelated. Pin it.
+          for name in PUBLIC_ANON_KEY BUILD_UPLOAD_TOKEN; do
+            grep -qE "^$name=/" "$GITHUB_OUTPUT" \
+              || { echo "::error::secret-files line for $name is not NAME=PATH"; exit 1; }
+          done
+          if grep -q 'id=.*,src=' "$GITHUB_OUTPUT"; then
+            echo "::error::secret-files uses the buildx CLI form; the action wants NAME=PATH"
+            exit 1
+          fi
+          echo "build args rendered; secret-files in NAME=PATH form; no value left the mounts"
 
           shred -u /tmp/build-secrets/* && rm -rf /tmp/build-secrets
           rm -f /tmp/build-args-output.txt /tmp/build-args.log

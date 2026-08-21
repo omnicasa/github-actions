@@ -338,6 +338,8 @@ jobs:
           # buildx secret mounts, from the manifest's buildArgs.secrets. Unlike a
           # build arg these are never recorded in the image metadata or the cache,
           # which is what makes them safe for a credential the build genuinely needs.
+          # Rendered as NAME=PATH: a malformed line here only WARNS, and the build then
+          # runs with the mount empty, so the app's Dockerfile must check for that.
           secret-files: ${{ steps.build-args.outputs.secret-files }}
           # Cache lives with the repo, so there is no registry cache image to garbage-collect.
           cache-from: type=gha

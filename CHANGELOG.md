@@ -6,6 +6,24 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.7.1] — 2026-08-21
+
+### Fixed
+
+- `render-build-args` emitted `secret-files` in the buildx **CLI** form
+  `id=NAME,src=PATH`. `docker/build-push-action` splits each line on the first `=` and
+  treats the remainder as the filename, so it looked for a file called
+  `NAME,src=/path`, logged `##[warning]secret file ... not found`, and **carried on**.
+  Every declared build secret then reached the Dockerfile as an empty string, and the
+  build failed much later somewhere unrelated — for a Next.js app, as "Failed to
+  collect page data" naming a route with nothing to do with the missing value.
+
+  The correct form is `NAME=PATH`. CI now asserts it and rejects the CLI form, because
+  the failure mode is a warning rather than an error and is otherwise invisible.
+
+  Anyone on v1.7.0 using `buildArgs.secrets` must move to v1.7.1; `buildArgs.variables`
+  was unaffected.
+
 ## [v1.7.0] — 2026-08-21
 
 ### Added
