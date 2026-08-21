@@ -71,21 +71,15 @@ jobs:
           application-secret: ${{ secrets.OVH_GA_APPLICATION_SECRET }}
           consumer-key: ${{ secrets.OVH_GA_CONSUMER_KEY }}
 
+      # Same resolver the deploy uses. Rolling back in the wrong namespace is the
+      # worst possible time to discover that two files disagreed about which one
+      # `dev` or `prodtest` means.
       - name: Read app and namespace from the manifest
         id: manifest
-        env:
-          MANIFEST: ${{ inputs.manifest-path }}
-          ENVIRONMENT: ${{ inputs.environment }}
-        run: |
-          set -euo pipefail
-          python3 -m pip install --quiet --disable-pip-version-check pyyaml
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import os, yaml
-          m = yaml.safe_load(open(os.environ["MANIFEST"])) or {}
-          m.update((m.get("environments") or {}).get(os.environ["ENVIRONMENT"]) or {})
-          print(f"app={m['app']}")
-          print(f"namespace={m['namespace']}")
-          PY
+        uses: omnicasa/github-actions/actions/resolve-target@v1
+        with:
+          environment: ${{ inputs.environment }}
+          manifest-path: ${{ inputs.manifest-path }}
 
       - name: Roll back
         id: rollback

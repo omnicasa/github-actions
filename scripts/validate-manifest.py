@@ -22,12 +22,26 @@ except ImportError as exc:
     print("PyYAML required: python3 -m pip install pyyaml", file=sys.stderr)
     raise SystemExit(2) from exc
 
-# Must match render-values.py's ENV_OVERRIDABLE.
-ENV_OVERRIDABLE = {"app", "namespace", "repositoryPrefix", "tlsSecretName"}
+# Must match actions/resolve-target/target.py's ENV_OVERRIDABLE. Imported rather than
+# retyped where possible — this script also runs from a laptop against a checkout of
+# only the app repo, so it falls back to a literal copy when the action is not there.
+try:
+    sys.path.insert(
+        0, str(Path(__file__).resolve().parent.parent / "actions" / "resolve-target")
+    )
+    from target import ENV_OVERRIDABLE as _OVERRIDABLE
+
+    ENV_OVERRIDABLE = set(_OVERRIDABLE)
+except ImportError:  # pragma: no cover - only when run outside this repo
+    ENV_OVERRIDABLE = {"app", "namespace", "repositoryPrefix", "tlsSecretName", "enabled"}
 KNOWN_TOP_LEVEL = {
     "app", "namespace", "build", "workingDirectory", "domainVar", "tlsSecretName",
     "ingress", "required", "env", "environments", "repositoryPrefix",
     "helmValues",
+    # Top level, this pauses every environment at once — a one-line way to stop a
+    # repo deploying during an incident without deleting the workflow. Per
+    # environment it lives under environments.<env>.enabled.
+    "enabled",
 }
 # Kubernetes names: RFC 1123 labels.
 DNS_NAME = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
@@ -58,6 +72,15 @@ def check(path: Path) -> None:
 
     for key in sorted(set(data) - KNOWN_TOP_LEVEL):
         warn(f"{path}: unknown top-level key '{key}' (typo? it will be ignored)")
+
+    if "enabled" in data:
+        if not isinstance(data["enabled"], bool):
+            err(
+                f"{path}: 'enabled' must be a YAML boolean (true/false, unquoted), "
+                f"not {data['enabled']!r}"
+            )
+        elif data["enabled"] is False:
+            warn(f"{path}: 'enabled' is false at the top level — NO environment deploys")
 
     app = data.get("app")
     namespace = data.get("namespace")
@@ -186,6 +209,21 @@ def check(path: Path) -> None:
             value = overrides.get(field)
             if value and not DNS_NAME.match(str(value)):
                 err(f"{path}: environments.{env_name}.{field} is not a DNS-1123 name: {value!r}")
+
+        # `enabled: "false"` is a non-empty string, which is truthy in the workflow
+        # expression a reader would expect to gate on. Insist on a real YAML boolean.
+        if "enabled" in overrides and not isinstance(overrides["enabled"], bool):
+            err(
+                f"{path}: environments.{env_name}.enabled must be a YAML boolean "
+                f"(true/false, unquoted), not {overrides['enabled']!r}"
+            )
+        if overrides.get("enabled") is False and len(overrides) > 1:
+            warn(
+                f"{path}: environments.{env_name} is disabled, so its other overrides "
+                "({}) have no effect".format(
+                    ", ".join(sorted(set(overrides) - {"enabled"}))
+                )
+            )
 
 
 def main() -> int:

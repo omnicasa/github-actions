@@ -2,21 +2,29 @@ name: Branch guard (reusable)
 
 # Enforces the Omnicasa branch naming on pull requests.
 #
-#   feat/*      new work                 ─PR─> main
-#   fix/*       non-urgent fix           ─PR─> main
-#   perf/*      speed or resource win    ─PR─> main
-#   refactor/*  no behaviour change      ─PR─> main
-#   chore/*     tooling, deps, docs      ─PR─> main
-#   ci/*        pipeline and workflows   ─PR─> main
-#   hotfix/*    urgent production fix    ─PR─> main
+#   feat/*      new work                 ─PR─> staging, then ─PR─> main
+#   fix/*       non-urgent fix           ─PR─> staging, then ─PR─> main
+#   perf/*      speed or resource win    ─PR─> staging, then ─PR─> main
+#   refactor/*  no behaviour change      ─PR─> staging, then ─PR─> main
+#   chore/*     tooling, deps, docs      ─PR─> staging, then ─PR─> main
+#   ci/*        pipeline and workflows   ─PR─> staging, then ─PR─> main
+#   hotfix/*    urgent production fix    ─PR─> staging, then ─PR─> main
 #
-# `main` is the only long-lived branch, and it is production. Every change reaches it
-# through a PR that was deployed to staging and reviewed, so the branch kind is a
-# label for humans and for release notes — not a different pipeline. hotfix/* is
-# deliberately no exception: it takes the same route, it just says why it is urgent.
+# The branch kind is a label for humans and for release notes — not a different
+# pipeline. hotfix/* is deliberately no exception: same route, it just says why it is
+# urgent.
+#
+# On the four-environment flow a feature branch is merged twice: into `staging` (which
+# deploys staging and prodtest) and, once both look right, into `main` (which deploys
+# production). The same branch targets both bases, which is why the two allowlists
+# have the same default — the guard checks the branch NAME, and what makes main safe
+# is the review plus the ruleset, not a second naming rule.
+#
+# Repos on the two-environment flow are unaffected: they only ever open PRs into main,
+# and the `main` default has not changed.
 #
 # `allowed-into-develop` is kept for repos that still run a develop integration
-# branch. Repos on the house flow never hit it — no PR targets develop.
+# branch. Repos on either house flow never hit it — no PR targets develop.
 #
 # This is a required status check, not a substitute for a branch ruleset: a check
 # explains the rule, a ruleset enforces it against people who can bypass checks.
@@ -32,10 +40,18 @@ on:
         type: string
         required: false
         default: "feat/,fix/,perf/,refactor/,chore/,ci/,hotfix/"
+      allowed-into-staging:
+        description: >-
+          Same, for PRs into staging — the integration base on the four-environment
+          flow, where the PR deploys to dev and the merge deploys staging + prodtest.
+          Unused by repos with no staging branch.
+        type: string
+        required: false
+        default: "feat/,fix/,perf/,refactor/,chore/,ci/,hotfix/"
       allowed-into-develop:
         description: >-
           Same, for PRs into develop. Only used by repos that still keep a develop
-          integration branch; the house flow has no such branch.
+          integration branch; neither house flow has such a branch.
         type: string
         required: false
         default: "feat/,fix/,perf/,refactor/,chore/,ci/,hotfix/"
@@ -63,12 +79,14 @@ jobs:
           BASE: ${{ github.base_ref }}
           HEAD: ${{ github.head_ref }}
           INTO_MAIN: ${{ inputs.allowed-into-main }}
+          INTO_STAGING: ${{ inputs.allowed-into-staging }}
           INTO_DEVELOP: ${{ inputs.allowed-into-develop }}
         run: |
           set -euo pipefail
 
           case "$BASE" in
             main)    allowed="$INTO_MAIN" ;;
+            staging) allowed="$INTO_STAGING" ;;
             develop) allowed="$INTO_DEVELOP" ;;
             *)
               echo "::notice::no branch policy defined for base '$BASE'; skipping"
@@ -95,8 +113,8 @@ jobs:
               echo
               echo "\`$HEAD\` cannot target \`$BASE\`. Allowed: \`$allowed\`"
               echo
-              if [ "$BASE" = "main" ]; then
-                echo "Every change reaches \`main\` from a typed branch. Pick the kind that"
+              if [ "$BASE" = "main" ] || [ "$BASE" = "staging" ]; then
+                echo "Every change reaches \`$BASE\` from a typed branch. Pick the kind that"
                 echo "describes it — \`feat/\`, \`fix/\`, \`perf/\`, \`refactor/\`, \`chore/\`, \`ci/\`,"
                 echo "or \`hotfix/\` for an urgent production fix — rename the branch and push"
                 echo "again; the PR will pick up the new name."

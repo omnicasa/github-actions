@@ -16,6 +16,10 @@ Why the whole context instead of one `env:` entry per key: the manifest is then
 the single source of truth. Adding a tunable is one line there, not three
 places (workflow env block + python list + the GitHub Environment).
 
+Which app, which namespace and which registry repository are NOT decided here —
+they come from ../resolve-target/target.py, shared with the build job and the
+rollback workflow so the three can never disagree about where an image lives.
+
 SECURITY INVARIANT: this script prints key *names* only, never values. The
 `secrets` context is passed in wholesale, so any print of a value would leak
 every secret into the job log. Keep every diagnostic on the name side.
@@ -30,92 +34,19 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import NoReturn
 
-MANIFEST = Path(os.environ.get("DEPLOY_MANIFEST", ".github/deploy-manifest.yml"))
+# Sibling action directory. Both actions are checked out from the same ref of this
+# repo, side by side, so this resolves both in the runner's _actions cache and in a
+# plain clone (which is how CI exercises this file).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "resolve-target"))
+
+from target import emit_output, fail, notice, resolve_from_env, warn  # noqa: E402
+
 RELEASE_OUT = Path(os.environ.get("RELEASE_VALUES_OUT", "/tmp/release-values.json"))
 APP_ENV_OUT = Path(os.environ.get("APP_ENV_VALUES_OUT", "/tmp/app-env-values.json"))
 
 # `${NAME}` references inside `env.derived` values.
 DERIVED_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
-
-# The only keys an `environments.<name>` block may override. Deliberately short:
-# letting an environment redefine its env-var allowlist is how omnicasa-payload's
-# ci_dev.yaml drifted into deploying with the wrong environment's secrets.
-ENV_OVERRIDABLE = ("app", "namespace", "repositoryPrefix", "tlsSecretName")
-
-
-def fail(msg: str) -> NoReturn:
-    """Annotate the failure so it lands on the workflow summary, then stop."""
-    print(f"::error::{msg}", file=sys.stderr)
-    sys.exit(1)
-
-
-def notice(msg: str) -> None:
-    print(f"::notice::{msg}")
-
-
-def warn(msg: str) -> None:
-    print(f"::warning::{msg}")
-
-
-def emit_output(key: str, value: str) -> None:
-    """Publish a step output when running inside Actions; no-op locally."""
-    path = os.environ.get("GITHUB_OUTPUT")
-    if path:
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(f"{key}={value}\n")
-
-
-def load_manifest(path: Path) -> dict:
-    if not path.is_file():
-        fail(f"{path} not found — the deploy workflow requires a deploy manifest")
-    text = path.read_text()
-    try:
-        import yaml  # available on GitHub-hosted ubuntu runners
-
-        data = yaml.safe_load(text)
-    except ImportError:
-        fail("PyYAML is not installed on this runner; add a `pip install pyyaml` step")
-    except Exception as exc:  # malformed YAML
-        fail(f"{path} is not valid YAML: {exc}")
-    if not isinstance(data, dict):
-        fail(f"{path} must contain a YAML mapping at the top level")
-    return data
-
-
-def apply_environment_overrides(manifest: dict, environment: str) -> dict:
-    """Fold `environments.<environment>` into the top level of the manifest.
-
-    Exists so a repo with a deviating dev environment (different app name,
-    different namespace, images pushed under a different registry prefix) needs
-    one block here rather than a second copy of the whole workflow.
-    """
-    environments = manifest.get("environments") or {}
-    if not isinstance(environments, dict):
-        fail("manifest key 'environments' must be a mapping of name -> overrides")
-    overrides = environments.get(environment)
-    if not overrides:
-        return manifest
-    if not isinstance(overrides, dict):
-        fail(f"manifest key 'environments.{environment}' must be a mapping")
-
-    unknown = sorted(set(overrides) - set(ENV_OVERRIDABLE))
-    if unknown:
-        fail(
-            f"environments.{environment} may only override "
-            + ", ".join(ENV_OVERRIDABLE)
-            + " — not "
-            + ", ".join(unknown)
-        )
-
-    merged = dict(manifest)
-    merged.update(overrides)
-    notice(
-        f"environment '{environment}' overrides: "
-        + ", ".join(f"{k}={overrides[k]}" for k in sorted(overrides))
-    )
-    return merged
 
 
 def load_context(var_name: str) -> dict:
@@ -186,21 +117,26 @@ def resolve_derived(
 
 
 def main() -> None:
-    environment = os.environ.get("ENVIRONMENT", "").strip()
+    # app / namespace / repository and the environments-block merge all come from
+    # the shared resolver, so the image this renders cannot point somewhere the
+    # build job did not push.
+    target = resolve_from_env()
+    environment = target.environment
+    manifest = target.manifest
+    app = target.app
+    namespace = target.namespace
 
-    manifest = load_manifest(MANIFEST)
-    manifest = apply_environment_overrides(manifest, environment)
+    # Belt and braces: the workflow gates on `enabled` before this ever runs, but a
+    # caller invoking the action directly must not quietly deploy a switched-off
+    # environment.
+    if not target.enabled:
+        fail(
+            f"environment '{environment}' is disabled in the deploy manifest "
+            "(environments.<env>.enabled: false) — refusing to render a release for it"
+        )
 
     gh_vars = load_context("VARS_JSON")
     gh_secrets = load_context("SECRETS_JSON")
-
-    app = str(manifest.get("app") or "").strip()
-    if not app:
-        fail(f"{MANIFEST}: 'app' is required (the Helm release and app name)")
-
-    namespace = str(manifest.get("namespace") or "").strip()
-    if not namespace:
-        fail(f"{MANIFEST}: 'namespace' is required (pre-created; CI never creates it)")
 
     image_tag = os.environ.get("IMAGE_TAG", "").strip()
     if not image_tag:
@@ -263,10 +199,10 @@ def main() -> None:
     if not registry:
         fail("vars.OVH_REGISTRY is not set for this environment")
 
-    prefix = str(manifest.get("repositoryPrefix") or environment).strip()
-    repository = os.environ.get("REPOSITORY", "").strip() or (
-        f"{prefix}/{app}" if prefix else app
-    )
+    # The workflow passes the repository the build job actually pushed to. It is
+    # computed by the same resolver, so the two agree by construction; the input
+    # exists so a promotion between environments can be stated explicitly.
+    repository = os.environ.get("REPOSITORY", "").strip() or target.repository
 
     release: dict[str, object] = {
         "image": {
@@ -365,8 +301,8 @@ def main() -> None:
         emit_output(key, value)
 
     # Always state what was actually deployed where. When an `environments:` block
-    # is in play, this line is the difference between a five-minute and a two-hour
-    # investigation.
+    # or a namespace convention is in play, this line is the difference between a
+    # five-minute and a two-hour investigation.
     notice(
         f"rendered {len(variables)} variables and {len(secrets)} secrets for "
         f"{app} in namespace {namespace} @ {repository}:{image_tag}"

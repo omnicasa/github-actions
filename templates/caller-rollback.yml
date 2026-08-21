@@ -1,8 +1,15 @@
-# Copy to .github/workflows/rollback.yml in every app repo.
+# Copy to .github/workflows/rollback.yml in every app repo, on either flow.
 #
 # Worth having even if it is never used: during an incident the alternative is
 # someone finding a kubeconfig and running helm by hand, with no audit trail and
 # no environment protection rules.
+#
+# The namespace is resolved from the manifest with the same conventions the deploy
+# uses, so rolling back `prodtest` targets prodtest-<app> without anyone typing it.
+#
+# DELETE the options this repo does not have. They are all listed because a template
+# is a starting point and trimming a list is easier than remembering to add one —
+# but a choice offering an environment that was never created just fails the run.
 #
 # Find the revision first:  helm history <app> -n <namespace> --max 10
 # Leave it blank to go back one revision.
@@ -16,7 +23,12 @@ on:
         description: "Environment to roll back"
         type: choice
         options:
+          # Ordered most-urgent first: during an incident the top entry is the one
+          # being reached for.
           - production
+          - prodtest
+          - staging
+          - dev
         required: true
       revision:
         description: "Helm revision (blank = previous)"

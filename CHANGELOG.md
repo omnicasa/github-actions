@@ -6,6 +6,77 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [Unreleased]
+
+### Added
+
+- **Four-environment flow.** `dev`, `staging`, `prodtest` and `production` across two
+  long-lived branches: a PR into `staging` deploys dev, the merge deploys staging and
+  prodtest in parallel from one build, and a merge into `main` deploys production. One
+  new template, `caller-deploy-4env.yml` — the branch guard and rollback callers are
+  flow-agnostic and were widened in place rather than forked.
+  See [docs/multi-environment.md](docs/multi-environment.md).
+- **Namespace and registry-prefix conventions.** `dev` → `dev-<app>`, `prodtest` →
+  `prodtest-<app>`; `staging` and `production` stay `<app>`. `prodtest` reads its image
+  from `staging/<app>` because it promotes the artifact staging built rather than
+  rebuilding the commit. An explicit `environments.<env>.namespace` is still taken
+  verbatim and no prefix is added on top.
+- **`enabled` on/off switch.** `environments.<env>.enabled: false` in the deploy manifest
+  skips that environment's build and deploy with a green tick and a log line, instead of
+  failing on credentials that were never created. A top-level `enabled: false` pauses
+  every environment at once.
+- `actions/resolve-target` — one implementation of "which app, which namespace, which
+  registry repository, is it on", shared by the build job, the deploy job and the rollback
+  workflow. It replaces three hand-rolled copies of that logic.
+- `build-only` input on `deploy.yml`, plus an `image-tag` workflow output. One build job
+  can now feed several deploy jobs, which is what lets staging and prodtest deploy the
+  same bytes concurrently.
+- `environment-branches` input on `deploy.yml`, defaulting to `production=main`. A run
+  whose ref is not that branch cannot deploy that environment and fails in the
+  credential-free `resolve` job with a message saying which branch to use. Closes the
+  `workflow_dispatch` gap where the branch and the environment are two unconnected
+  dropdowns. Only production is pinned by default: `staging` and `dev` deploy from PR
+  head branches on one flow or the other, and `prodtest` is left open so a feature branch
+  can be rehearsed on prod-k8s before it is merged. This is a second lock beside the
+  GitHub deployment-branch policy, not a replacement: the policy is settings state that a
+  new repo can silently lack.
+- `allowed-into-staging` input on `branch-guard.yml`, and `staging` recognised as a PR
+  base. Previously a PR into `staging` matched no policy and the guard skipped.
+- `templates/caller-branch-guard.yml` now triggers on PRs into `staging` as well as
+  `main`, and `templates/caller-rollback.yml` lists all four environments. Both are
+  inert additions on the two-environment flow — no `staging` branch means no PR targets
+  it — so one template serves both flows. Re-copy them to pick the change up; an
+  existing copy keeps working unchanged.
+
+### Documentation
+
+- `docs/env-contract.md` gains a "which scope" section: what belongs at organization,
+  repository and environment scope, why a key that differs anywhere must be set at
+  environment scope everywhere, and why an app key at repository scope is the most likely
+  route to prodtest writing to the production database.
+
+### Fixed
+
+- `release.yml` on `workflow_dispatch` checked out the branch selected in the Actions UI
+  rather than the tag named in the `tag` input, so re-pointing `v1` at an older release —
+  the rollback path — moved `v1` to that branch's HEAD instead, while the log announced
+  the older tag. It now checks out the requested tag and names the target commit
+  explicitly. A tag push was always correct and is unaffected.
+
+### Changed
+
+- The "resolved to an environment name" check moved from the deploy job into the new
+  credential-free `resolve` job, so a caller that forgets `environment:` on a
+  `pull_request` trigger fails in seconds rather than after a full image build.
+- The deploy job is now handed the registry repository the build job pushed to, rather
+  than recomputing it. Same resolver either way; passing it removes the question.
+- `environments:` may override a fifth key, `enabled`. The other four are unchanged.
+
+Nothing here changes behaviour for a repo on the two-environment flow: `staging` and
+`production` resolve to the same namespaces and the same registry prefixes as before, and
+`caller-deploy.yml`, `caller-deploy-no-staging.yml`, `caller-branch-guard.yml` and
+`caller-rollback.yml` are untouched.
+
 ## [v1.5.0] — 2026-08-16
 
 ### Changed
