@@ -6,6 +6,32 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.6.1] — 2026-08-21
+
+### Changed
+
+- Third-party action pins moved by Dependabot. All three are **major** bumps, so read
+  this one before moving a pin:
+  - `actions/checkout` 4 → 7, in `ci.yml`, `deploy.yml`, `release.yml` and `rollback.yml`
+  - `docker/login-action` 3 → 4, in the deploy workflow's build job
+  - `docker/setup-buildx-action` 3 → 4, in the same job
+
+  No input to any reusable workflow, composite action or chart value changed, which is
+  why this is a patch release.
+
+  What CI does **not** cover: the deploy path itself. `ci.yml` lints, renders the chart
+  and exercises the renderer, but never checks out on a `pull_request` deploy, never logs
+  in to a registry and never builds an image — so all three of these actions are used in
+  places the release gate does not reach. Two behaviours worth confirming against a real
+  run before a production deploy relies on them:
+  - `deploy.yml` passes `ref: ${{ github.event.pull_request.head.sha }}` to checkout,
+    which is **empty on push events** and depends on empty meaning "the default ref".
+  - `docker/login-action` still takes `registry` / `username` / `password` unchanged;
+    that is the OVH registry auth in the build job.
+
+  Roll back with the Release workflow — dispatch it with `tag: v1.6.0` — if a deploy
+  fails at checkout, at `docker login` or at buildx setup.
+
 ## [v1.6.0] — 2026-08-21
 
 ### Added
