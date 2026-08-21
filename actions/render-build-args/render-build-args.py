@@ -215,7 +215,11 @@ def main() -> None:
         dest = secrets_dir / name
         dest.write_text(value, encoding="utf-8")
         os.chmod(dest, stat.S_IRUSR | stat.S_IWUSR)
-        secret_files.append(f"id={name},src={dest}")
+        # `NAME=PATH`, NOT the buildx CLI's `id=NAME,src=PATH`. docker/build-push-action
+        # splits each line on the FIRST `=` and treats the remainder as the path, so the
+        # CLI form makes it look for a file literally named "NAME,src=/path" and warn
+        # "secret file ... not found" — while the build carries on with the mount empty.
+        secret_files.append(f"{name}={dest}")
 
     for name in missing_args + missing_secrets:
         warn(

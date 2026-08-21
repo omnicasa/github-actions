@@ -45,7 +45,10 @@ outputs:
     description: Multiline KEY=value for docker/build-push-action's build-args
     value: ${{ steps.render.outputs.build-args }}
   secret-files:
-    description: Multiline id=KEY,src=PATH for docker/build-push-action's secret-files
+    description: >-
+      Multiline NAME=PATH for docker/build-push-action's secret-files input. Not the
+      buildx CLI's id=NAME,src=PATH — the action splits on the first `=` and would
+      treat the whole remainder as the filename.
     value: ${{ steps.render.outputs.secret-files }}
 
 runs:
