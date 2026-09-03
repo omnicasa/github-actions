@@ -76,7 +76,7 @@ config-only change actually rolls the pods instead of being a no-op nobody notic
 | `service.type`, `.annotations`, `.extraPorts`, `.extraServicePorts` | | |
 | `ingress.enabled` | `true` | |
 | `ingress.className` | `haproxy` | |
-| `ingress.annotations` | `cert-manager.io/cluster-issuer: letsencrypt` only | Override the issuer per environment; see below |
+| `ingress.annotations` | `cert-manager.io/cluster-issuer: letsencrypt-dns01` only | Override the issuer per environment; see below |
 | `ingress.hosts`, `.tls` | placeholders | Set by the renderer from `domainVar` |
 | `ingress.extraRules` | `[]` | For shapes the single-host block cannot express |
 
@@ -85,9 +85,13 @@ Only the cluster-issuer is defaulted. Anything that changes how requests are *ha
 and a default here would silently apply to every app. `ssl-redirect` behind a Cloudflare
 zone set to Flexible SSL produces a redirect loop. Apps that want it declare it.
 
-`letsencrypt` is a default, not an allowlist. The template emits `ingress.annotations`
-verbatim, so any ClusterIssuer the cluster actually has works — `letsencrypt-dns01` where
-the challenge has to be answered from DNS rather than over :80. Put the override in
+The default is `letsencrypt-dns01`. DNS-01 does not need the host reachable on :80, so it
+works for an environment that is not publicly exposed and it is the only solver that can
+issue a wildcard. `letsencrypt` (HTTP-01) remains available for anything whose zone the
+DNS-01 solver does not hold credentials for.
+
+The name is a default, not an allowlist: the template emits `ingress.annotations`
+verbatim, so any ClusterIssuer the cluster actually has works. Put an override in
 `deploy/values.<environment>.yaml`, not `deploy/values.yaml`, so only that environment
 moves; annotations deep-merge, so the app's own `ssl-redirect` keys survive:
 
@@ -95,7 +99,7 @@ moves; annotations deep-merge, so the app's own `ssl-redirect` keys survive:
 # deploy/values.staging.yaml
 ingress:
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-dns01
+    cert-manager.io/cluster-issuer: letsencrypt
 ```
 
 A name with no matching ClusterIssuer fails **silently**: cert-manager leaves the

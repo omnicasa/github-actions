@@ -93,6 +93,12 @@ ingress:
   # Only the cluster-issuer is defaulted: every app needs a certificate, and the
   # annotation is inert if cert-manager is absent.
   #
+  # DNS-01 rather than HTTP-01: it does not need the host reachable on :80 from the
+  # internet, so it works for an environment that is not publicly exposed and it is the
+  # only solver that can issue a wildcard. The issuer must exist on the target cluster —
+  # a name that does not resolve leaves the Certificate pending while the release still
+  # reports success.
+  #
   # Anything that changes how requests are HANDLED is deliberately NOT defaulted —
   # annotations merge across values files, so a default here silently applies to
   # every app that adopts the chart. haproxy.org/ssl-redirect in particular can
@@ -104,7 +110,7 @@ ingress:
   #       haproxy.org/ssl-redirect: "true"
   #       haproxy.org/ssl-redirect-port: "443"
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt
+    cert-manager.io/cluster-issuer: letsencrypt-dns01
   # host / tls / the external-dns annotation are set per environment by the
   # workflow from the manifest's domainVar. These are placeholders.
   hosts:
