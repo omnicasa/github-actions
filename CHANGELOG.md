@@ -6,7 +6,7 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
-## [Unreleased]
+## [v1.8.0] — 2026-09-04
 
 ### Changed
 
@@ -21,6 +21,9 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
   credentials for that app's zone.** If it does not, issuance fails while the existing
   certificate stays in the Secret, so the release goes green and nothing breaks until
   that certificate reaches renewal, weeks later.
+
+  Both stage-k8s and prod-k8s were given the issuer before this release, so no Omnicasa
+  app needs to act. The warning above is for a cluster added later.
 
   Apps that need HTTP-01 pin it back per environment:
 
