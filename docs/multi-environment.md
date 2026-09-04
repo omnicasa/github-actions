@@ -39,6 +39,10 @@ that are inert wherever the branch or the environment does not exist.
 A repo with no staging cluster entry at all uses `templates/caller-deploy-no-staging.yml`:
 push to `main` deploys production, PRs deploy nothing, and the branch guard still runs.
 
+A repo that wants two environments but a branch trigger for each — rather than deploying
+staging from a pull request — has no template; see [branch-triggered
+staging](#branch-triggered-staging) below.
+
 > `templates/caller-deploy-gitflow.yml`, `-1branch.yml` and `-2branch.yml` are
 > superseded and kept only for reference. They target a `develop` branch or an older
 > naming; do not start a new repo from them.
@@ -167,6 +171,36 @@ fix/*       ──PR──>  main
 both clusters, and the registry prefix is the environment name — the conventions above
 leave `staging` and `production` exactly as they were, which is what lets a repo stay on
 this flow with no change at all.
+
+### Branch-triggered staging
+
+`support-ai-dashboard` runs a variant: two environments, but each deploys from its own
+long-lived branch, and a pull request deploys nothing.
+
+| Event | Deploys to |
+|---|---|
+| PR `<kind>/*` → `staging` | nothing |
+| push `staging` | **staging** |
+| PR `staging` → `main` | nothing |
+| push `main` | **production** |
+
+Pick it when staging should change on a merge rather than on every push to an open PR.
+The cost is that a change reaches staging only once it is merged there, so the PR itself
+runs nowhere.
+
+There is no template. Copy `caller-deploy-4env.yml` and delete the `dev` and `prodtest`
+jobs; the `build-only` job goes with them, since it exists solely to hand one artifact to
+staging and prodtest at once. Two things then have to change, and neither is optional:
+
+- **Pin both environments**, because the default pins only production and this flow's
+  staging *does* have a fixed branch: `environment-branches: production=main,staging=staging`.
+- **Let `staging` open a PR into `main`**, or every promotion PR fails the guard with
+  `'staging' cannot target 'main'`. In the branch-guard caller:
+  `allowed-into-main: "staging"`. PRs into `staging` keep the default prefixes.
+
+Set the staging Environment's deployment branches to `staging`, not All branches — the
+row in [Protection rules](#protection-rules-worth-setting) below assumes the PR-triggered
+two-environment flow.
 
 ## Shared releases
 
@@ -332,11 +366,12 @@ past both branch checks still stops dead in front of a human who can see the ref
 |---|---|---|
 | production | `main` | required, prevent self-review |
 | prodtest | All branches — dispatched on demand | none |
-| staging | `staging` (four-env) / All branches (two-env) | none |
+| staging | `staging` (four-env, branch-triggered) / All branches (PR-triggered two-env) | none |
 | dev | All branches — PR head names vary | none |
 
-`dev` and two-environment `staging` are "All branches" because PR head branch names vary
-and the branch guard already restricts what can open a PR. `prodtest` is "All branches"
+`dev` and PR-triggered `staging` are "All branches" because PR head branch names vary
+and the branch guard already restricts what can open a PR. A staging that deploys from a
+branch is pinned to it instead. `prodtest` is "All branches"
 for a different reason: so a branch can be rehearsed on prod-k8s before it is merged.
 
 One coupling to know about: the build job that feeds a dispatched prodtest deploy

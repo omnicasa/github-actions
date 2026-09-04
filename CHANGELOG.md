@@ -6,6 +6,35 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [Unreleased]
+
+### Changed
+
+- **The chart's default `cert-manager.io/cluster-issuer` is now `letsencrypt-dns01`,
+  was `letsencrypt`.** DNS-01 does not need the host reachable on :80, so it serves
+  environments that are not publicly exposed and is the only solver that can issue a
+  wildcard.
+
+  This changes every release that does not set the annotation itself, on its next
+  deploy — cert-manager sees a new issuer on the Ingress and re-issues. **Before moving
+  a pin, confirm `letsencrypt-dns01` exists on the target cluster and its solver holds
+  credentials for that app's zone.** If it does not, issuance fails while the existing
+  certificate stays in the Secret, so the release goes green and nothing breaks until
+  that certificate reaches renewal, weeks later.
+
+  Apps that need HTTP-01 pin it back per environment:
+
+  ```yaml
+  # deploy/values.<environment>.yaml
+  ingress:
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+  ```
+
+  The golden render does not cover this: `tests/fixtures/omnicasa-tools` sets the
+  annotation explicitly, so `tests/golden/omnicasa-tools.yaml` is unchanged and CI
+  stays green either way.
+
 ## [v1.7.1] — 2026-08-21
 
 ### Fixed
