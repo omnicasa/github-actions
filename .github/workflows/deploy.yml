@@ -489,8 +489,11 @@ jobs:
         uses: omnicasa/github-actions/actions/teams-notify@v1
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS }}
-          status: ${{ failure() && 'failure' || 'success' }}
-          title: ${{ failure() && '⚠️ Production deploy failed' || '✅ Production deploy succeeded' }}
+          # success()/failure() are only valid at the top of an `if:` — not inside a
+          # `with:` expression, which is what this needs to be to pick the title text.
+          # contains() is a plain function, so it works in either place.
+          status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
+          title: ${{ contains(needs.*.result, 'failure') && '⚠️ Production deploy failed' || '✅ Production deploy succeeded' }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           facts: |
             Repository: ${{ github.repository }}
@@ -506,7 +509,7 @@ jobs:
       # Same event, second channel: this one is failures only, for whoever is on
       # call and does not want the noise of every successful release too.
       - name: Notify alerts channel
-        if: failure()
+        if: contains(needs.*.result, 'failure')
         uses: omnicasa/github-actions/actions/teams-notify@v1
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}

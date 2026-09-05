@@ -123,8 +123,10 @@ jobs:
         uses: omnicasa/github-actions/actions/teams-notify@v1
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS }}
-          status: ${{ failure() && 'failure' || 'success' }}
-          title: ${{ failure() && '⚠️ Production rollback failed' || '✅ Production rollback succeeded' }}
+          # success()/failure() are only valid at the top of an `if:`, not inside a
+          # `with:` expression. contains() is a plain function, valid in either place.
+          status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
+          title: ${{ contains(needs.*.result, 'failure') && '⚠️ Production rollback failed' || '✅ Production rollback succeeded' }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           facts: |
             Repository: ${{ github.repository }}
@@ -134,7 +136,7 @@ jobs:
             Rollback: ${{ needs.rollback.result }}
 
       - name: Notify alerts channel
-        if: failure()
+        if: contains(needs.*.result, 'failure')
         uses: omnicasa/github-actions/actions/teams-notify@v1
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}
