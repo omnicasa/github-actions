@@ -93,8 +93,9 @@ env:
 # environment-scoped build input can be resolved at all.
 #
 # WHAT IT COSTS. A baked value pins the image to one environment: two environments then
-# build the same commit twice, and build-once-promote — which is what lets prodtest run
-# the exact bytes staging tested — stops being possible for this app.
+# build the same commit twice, and build-once-promote stops being possible for this app.
+# That matters wherever one image is meant to serve two environments — the promoting
+# prodtest of caller-deploy-4env.yml being the case the estate cares about.
 buildArgs:
   # -> --build-arg NAME=value, read from `vars.*`. Recorded in the image metadata and
   # the build cache, so readable by anyone who can pull the image. Non-credentials only;
@@ -129,11 +130,20 @@ buildArgs:
 #
 # Defaults worth knowing before overriding them, all applied by the shared workflow:
 #   namespace          dev-<app> / <app> / prodtest-<app> / <app>   (see `namespace:` above)
-#   repositoryPrefix   the environment name — except prodtest, which reads
-#                      `staging/<app>` because it deploys the artifact staging built
-#                      rather than rebuilding the same commit
+#   repositoryPrefix   the environment name, for every environment including prodtest.
+#                      prodtest USED TO default to `staging/<app>` so it could promote
+#                      the artifact staging built. It no longer does: stage-k8s and
+#                      prod-k8s have separate registries, so a prodtest pod reaching
+#                      for `staging/<app>` needs stage-registry credentials in a
+#                      prod-k8s namespace. Opt back in — only once that pull secret
+#                      exists — with `prodtest: {repositoryPrefix: staging}`, which is
+#                      also REQUIRED by any caller whose build-only job feeds prodtest.
 environments: {}
 # prodtest:
 #   enabled: false
+#   # Required if a build-only job promotes ONE image to both staging and prodtest —
+#   # without it the build pushes staging/<app> and the deploy pulls prodtest/<app>.
+#   # Needs a pull secret in prodtest-<app> that can read the STAGE registry.
+#   repositoryPrefix: staging
 # dev:
 #   namespace: my-app-sandbox    # taken verbatim; no dev- prefix is added

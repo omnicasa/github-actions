@@ -44,9 +44,11 @@ What the migration did, recorded because the reasoning is not recoverable from t
   plugin uploads source maps during `next build` — so it is a `buildArgs.secrets` entry.
 - `domainVar: APP_DOMAIN` replaces `emaileditor.${{ vars.BASE_DOMAIN }}`, with
   `NEXT_PUBLIC_APP_URL` derived from it.
-- `dev` and `prodtest` ship `enabled: false`. dev has no namespace yet; prodtest cannot
-  promote, for two independent reasons — the separate per-cluster registries, and the
-  per-environment configuration baked into the image by the four build args above.
+- `dev` and `prodtest` ship `enabled: false`, both for want of a namespace. The old
+  blocker — prodtest could not promote, because of the separate per-cluster registries
+  and the per-environment configuration baked in by the four build args above — no
+  longer applies: prodtest builds its own image under its own prefix now, with its own
+  environment's build args. Enabling it is a namespace-and-credentials job.
 
 **Still open:** the image stays environment-specific until those four move to runtime,
 so staging and production build the same commit twice.

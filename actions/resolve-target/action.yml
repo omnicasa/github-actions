@@ -24,7 +24,7 @@ outputs:
     description: Registry repository the image is pushed to and pulled from
     value: ${{ steps.resolve.outputs.repository }}
   repository-prefix:
-    description: Registry path segment — the environment name, unless the image is promoted
+    description: Registry path segment — the environment name, unless the manifest promotes this environment's image from another one
     value: ${{ steps.resolve.outputs.repository-prefix }}
 
 runs:

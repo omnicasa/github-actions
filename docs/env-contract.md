@@ -208,8 +208,10 @@ recoverable later without changing the app:
 
 - staging and production **build the same commit twice**, and two builds of one commit
   are only presumed identical.
-- **build-once-promote is off the table** for that app. `prodtest` exists to run the
-  exact bytes staging tested; it cannot, if those bytes carry staging's configuration.
+- **build-once-promote is off the table** for that app. It is opt-in anyway — prodtest
+  builds its own image by default — but a repo that has the cross-registry pull secret
+  and sets `environments.prodtest.repositoryPrefix: staging` to run the exact bytes
+  staging tested cannot do so if those bytes carry staging's configuration.
 
 So the order of preference is: read it at runtime from the ConfigMap or Secret; if the
 build truly cannot defer it, `buildArgs`; and if it is a credential, `buildArgs.secrets`.
@@ -223,10 +225,11 @@ collide with another's, and the environment an image came from is visible in its
 Override with `repositoryPrefix` in an `environments:` block when a deviating environment
 must push somewhere else.
 
-`prodtest` is the built-in exception. It deploys the artifact `staging` already built and
-tested rather than rebuilding the same commit, so it reads `<registry>/staging/<app>`.
-That is what makes prod-k8s run the exact bytes stage-k8s ran; the cost is that the pull
-secret in `prodtest-<app>` needs read access to the `staging/` path.
+`prodtest` used to be the built-in exception, reading `<registry>/staging/<app>` so it
+could deploy the artifact staging had already tested. It no longer does: that path lives
+in the stage-k8s registry and prod-k8s pulls from a different one, so the pull secret in
+`prodtest-<app>` would need cross-registry read access that no namespace here has. A repo
+that has solved it opts in with `environments.prodtest.repositoryPrefix: staging`.
 
 The namespace follows the environment the same way. `dev` and `prodtest` share a cluster
 with another environment of the same app, so they take a prefixed namespace —

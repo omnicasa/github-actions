@@ -62,7 +62,7 @@ hotfix/*
 | Event | Deploys to | Why |
 |---|---|---|
 | PR `<kind>/*` → `staging` | **dev** | the change runs somewhere before it is anywhere shared |
-| push `staging` | **staging** and **prodtest** | integration on stage-k8s, and the same artifact rehearsed on prod-k8s |
+| push `staging` | **staging** and **prodtest** | integration on stage-k8s, and the same commit rehearsed on prod-k8s |
 | PR `<kind>/*` → `main` | nothing | this commit has already run in three environments |
 | push `main` | **production** | the merge *is* the release |
 
@@ -81,7 +81,7 @@ months later. Nothing is cherry-picked anywhere.
 |---|---|---|---|
 | dev | stage-k8s | `dev-<app>` | `<registry>/dev/<app>:<sha>` |
 | staging | stage-k8s | `<app>` | `<registry>/staging/<app>:<sha>` |
-| prodtest | prod-k8s | `prodtest-<app>` | `<registry>/staging/<app>:<sha>` |
+| prodtest | prod-k8s | `prodtest-<app>` | `<registry>/prodtest/<app>:<sha>` |
 | production | prod-k8s | `<app>` | `<registry>/production/<app>:<sha>` |
 
 `dev` and `prodtest` are second environments on a cluster that already hosts the app, so
@@ -95,31 +95,43 @@ All four namespaces still have to exist, be RBAC-registered and have the pull se
 synced, per [onboarding.md](onboarding.md). The convention removes the *configuration*,
 not the prerequisite.
 
-### prodtest promotes, it does not rebuild
+### prodtest builds its own image — promotion is opt-in
 
-`prodtest` is the one environment whose registry prefix is not its own name. Push to
-`staging` runs **one** build, pushed to `staging/<app>:<sha>`; both the staging and
-prodtest deploys then promote that exact image, in parallel.
+`prodtest` reads `prodtest/<app>:<sha>` from its own cluster's registry, like every other
+environment reads its own name. Push to `staging` therefore runs **two** builds, one per
+cluster, and the two deploys still run in parallel because neither waits on the other.
 
-Two things follow, and both are the point:
+It did not always. Promotion was the original design and is still the better one:
 
-- **prod-k8s runs the bytes stage-k8s was tested on.** Two builds of one commit are only
-  presumed identical; one build is identical.
-- **They deploy concurrently**, because neither waits on the other's rollout. The caller
-  expresses this with a `build-only: true` job whose `image-tag` output both deploy jobs
-  consume.
+- **prod-k8s would run the bytes stage-k8s was tested on.** Two builds of one commit are
+  only presumed identical; one build is identical.
+- One `build-only: true` job feeds both deploys from a single artifact.
 
-The cost: the pull secret in `prodtest-<app>` must be able to read the `staging/` path —
-and that path is in the **stage-k8s registry**, which is a different registry from the
-one prod-k8s pulls from. So promotion needs either a pull secret in `prodtest-<app>`
-holding stage-registry credentials, or the image mirrored across registries after the
-build. **Neither exists on this estate today**, which is why no repo has prodtest
-enabled yet.
+What stops it here is the registry topology. `staging/<app>` lives in the **stage-k8s**
+registry, and prod-k8s pulls from a different one. So promotion needs either a pull
+secret in `prodtest-<app>` holding stage-registry credentials, or the image mirrored
+across registries after the build. **Neither exists on this estate**, and a default that
+cannot work is a default that produces `ImagePullBackOff` on first use — so the default
+became the thing that works.
 
-A second thing can rule promotion out independently of the registry: an image built with
+**To opt back in**, once that pull secret exists:
+
+```yaml
+# .github/deploy-manifest.yml
+environments:
+  prodtest:
+    repositoryPrefix: staging
+```
+
+That line is **required** by any caller with a `build-only: true` job feeding prodtest —
+`templates/caller-deploy-4env.yml` is one. Without it the build pushes `staging/<app>`
+and the deploy pulls `prodtest/<app>`. `check-workflow.sh` fails on that combination
+rather than letting it reach a cluster.
+
+A second thing rules promotion out independently of the registry: an image built with
 `buildArgs` carries one environment's configuration baked in, so promoting it puts
-staging's configuration on prod-k8s. An app in that position should keep
-`environments.prodtest.enabled: false` until the value moves to runtime. See
+staging's configuration on prod-k8s. An app in that position should not set
+`repositoryPrefix: staging` at all. See
 [env-contract.md](env-contract.md#build-time-vs-deploy-time).
 
 `production` does **not** promote. The commit on `main` is a different commit from the
@@ -374,12 +386,18 @@ and the branch guard already restricts what can open a PR. A staging that deploy
 branch is pinned to it instead. `prodtest` is "All branches"
 for a different reason: so a branch can be rehearsed on prod-k8s before it is merged.
 
-One coupling to know about: the build job that feeds a dispatched prodtest deploy
+One coupling applies only to a caller that **promotes** — one whose `build-only` job
+feeds prodtest, which now also requires `environments.prodtest.repositoryPrefix: staging`
+(see [above](#prodtest-builds-its-own-image--promotion-is-opt-in)). That build job
 declares `environment: staging`, because that is the environment the image is pushed
-under. So dispatching prodtest from a feature branch also needs `staging` on All
+under, so dispatching prodtest from a feature branch also needs `staging` on All
 branches. Pinning `staging` to its own branch and still dispatching prodtest freely means
-changing the caller's build job to `environment: prodtest` — the image path is identical
-either way, since the convention maps prodtest to the `staging` prefix.
+changing the build job to `environment: prodtest` — which resolves to the same image path
+*only because* that override is in place. Without the override the two differ, and the
+deploy pulls a path the build never wrote.
+
+A caller where prodtest builds its own image has no such coupling: nothing it does
+touches the `staging` environment.
 
 These are GitHub Environment settings, not workflow configuration — which is another
 reason the deploy job declares `environment:` rather than passing credentials in as inputs.

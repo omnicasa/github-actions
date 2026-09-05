@@ -17,8 +17,24 @@
 #   prodtest     prod-k8s    prodtest-<app>     <registry>/staging/<app>:<sha>   promoted
 #   production   prod-k8s    <app>              <registry>/production/<app>:<sha>
 #
-# Namespaces and the promoted image path are conventions, applied by the shared
-# workflow. Nothing here or in the manifest has to state them. Override one repo's
+# ⚠️ THIS FLOW PROMOTES, SO IT NEEDS ONE LINE IN YOUR MANIFEST:
+#
+#     environments:
+#       prodtest:
+#         repositoryPrefix: staging
+#
+# prodtest now defaults to its OWN prefix (prodtest/<app>), because stage-k8s and
+# prod-k8s have separate OVH registries. Without that line the build-only job below
+# pushes staging/<app> and the prodtest deploy pulls prodtest/<app> — ImagePullBackOff.
+# check-workflow.sh fails on exactly this. It is not enough on its own either: the pull
+# secret in prodtest-<app> must be able to read the STAGE registry, which no namespace
+# on this estate can do today. Until it can, either keep
+# `environments.prodtest.enabled: false`, or drop the promote design — delete the
+# `build` job and give prodtest a plain job like `production`'s, so it builds its own
+# image into prod-k8s's registry and no cross-registry pull is needed.
+#
+# Namespaces are a convention applied by the shared workflow. Nothing here or in the
+# manifest has to state them. Override one repo's
 # deviation in the manifest's `environments:` block; turn an environment off entirely
 # with `environments.<env>.enabled: false` and its jobs skip green.
 #
@@ -80,6 +96,10 @@ jobs:
   # stage-k8s was tested on — and so they deploy in parallel instead of one waiting
   # on the other's rollout. The image is pushed under the `staging` prefix; prodtest
   # pulls from there rather than rebuilding the same commit under its own.
+  #
+  # This job is the reason the manifest needs `prodtest.repositoryPrefix: staging` —
+  # see the warning in the header. Delete this job, and prodtest's `build: false` and
+  # `image-tag:` with it, to make prodtest build its own image instead.
   build:
     name: build
     if: >-

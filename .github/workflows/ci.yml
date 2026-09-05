@@ -319,8 +319,9 @@ jobs:
               # environment    namespace            registry repository
               "dev":        (f"dev-{app}",      f"dev/{app}"),
               "staging":    (app,               f"staging/{app}"),
-              # prodtest deploys the artifact staging built, so it reads staging's path.
-              "prodtest":   (f"prodtest-{app}", f"staging/{app}"),
+              # prodtest builds its own image: stage-k8s and prod-k8s have separate
+              # registries, so it cannot read a path that exists only in the other one.
+              "prodtest":   (f"prodtest-{app}", f"prodtest/{app}"),
               "production": (app,               f"production/{app}"),
               # An environment nobody named behaves as it did before the conventions
               # existed — this is what keeps repos on the two-environment flow working.
@@ -332,6 +333,12 @@ jobs:
               assert t.repository == repo, f"{env}: repository {t.repository} != {repo}"
               assert t.enabled is True, f"{env}: should default to enabled"
               assert t.app == app, f"{env}: app renamed to {t.app}"
+
+          # Promotion is opt-in per repo now that it is not the default. This is the
+          # exact line a repo adds once it can pull across registries.
+          promote = dict(m, environments={"prodtest": {"repositoryPrefix": "staging"}})
+          assert resolve(promote, "prodtest").repository == f"staging/{app}"
+          assert resolve(promote, "prodtest").namespace == f"prodtest-{app}"
 
           # An explicit namespace is verbatim: the prefix must not stack onto a name
           # someone chose, because that name is what the RBAC and pull secret exist for.
