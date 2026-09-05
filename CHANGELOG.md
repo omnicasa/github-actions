@@ -6,6 +6,40 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [Unreleased]
+
+### Changed
+
+- **`prodtest` now builds its own image instead of promoting staging's.** Its default
+  registry prefix moves from `staging` to `prodtest`, so the ref goes from
+  `<registry>/staging/<app>:<sha>` to `<registry>/prodtest/<app>:<sha>`.
+  `REPOSITORY_PREFIX` in `actions/resolve-target/target.py` is now empty; every
+  environment reads its own name.
+
+  Promotion was the better design and is still available — it just cannot be the
+  *default* on an estate where stage-k8s and prod-k8s have separate OVH registries. A
+  prodtest pod reaching for `staging/<app>` needs stage-registry credentials in a
+  prod-k8s namespace, which no namespace here has, so the old default produced
+  `ImagePullBackOff` on first use.
+
+  **Migration.** No repo has `prodtest` enabled today, so nothing in the estate changes
+  on this bump. A repo that DOES promote — any caller with a `build-only: true` job
+  feeding prodtest, `templates/caller-deploy-4env.yml` included — must add:
+
+  ```yaml
+  environments:
+    prodtest:
+      repositoryPrefix: staging
+  ```
+
+  Without it the build pushes `staging/<app>` and the deploy pulls `prodtest/<app>`.
+  `check-workflow.sh` now **fails** on that combination instead of letting it reach a
+  cluster; the old warning, which fired when a repo did *not* promote, is gone because
+  not promoting is now correct.
+
+  The prodtest namespace is unaffected — still `prodtest-<app>`, from the separate
+  `NAMESPACE_PREFIX` table.
+
 ## [v1.8.0] — 2026-09-04
 
 ### Changed

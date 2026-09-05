@@ -105,10 +105,30 @@ if grep -rq "environment: prodtest" .github/workflows/ 2>/dev/null; then
   else
     ok "branch guard covers staging and main"
   fi
-  # prodtest deploys prod-k8s from a staging-built image. If the caller rebuilds for
-  # prodtest instead of promoting, the two clusters run different bytes from one commit.
-  if ! grep -q 'build-only: true' .github/workflows/*.yml 2>/dev/null; then
-    warn "prodtest is deployed without a build-only job; it will rebuild the image instead of promoting staging's"
+  # prodtest BUILDS ITS OWN IMAGE by default — stage-k8s and prod-k8s have separate
+  # registries, so it cannot read a path that exists only in the other one. A caller
+  # that still promotes (a build-only job feeding a `build: false` prodtest deploy) has
+  # to say so in the manifest, or the build pushes staging/<app> while the deploy pulls
+  # prodtest/<app> and the pod sits in ImagePullBackOff.
+  if grep -q 'build-only: true' .github/workflows/*.yml 2>/dev/null && have python3; then
+    python3 - "$MANIFEST" <<'PRODTEST_PY' || FAILS=$((FAILS + 1))
+import sys, yaml
+try:
+    m = yaml.safe_load(open(sys.argv[1])) or {}
+except Exception as exc:
+    print(f"warn: could not read the manifest to check the prodtest image path: {exc}")
+    sys.exit(0)
+pt = (m.get("environments") or {}).get("prodtest") or {}
+if pt.get("enabled", True) is False:
+    print("ok  : prodtest is disabled; the build-only fan-out does not reach it")
+    sys.exit(0)
+if str(pt.get("repositoryPrefix", "")).strip() != "staging":
+    print("FAIL: a build-only job promotes one image to prodtest, but the manifest does not "
+          "set environments.prodtest.repositoryPrefix: staging. prodtest now defaults to its "
+          "own prefix, so the deploy pulls prodtest/<app> while the build pushed staging/<app>.")
+    sys.exit(1)
+print("ok  : prodtest promotes staging's image, and the manifest declares it")
+PRODTEST_PY
   fi
 fi
 

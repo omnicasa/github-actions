@@ -50,8 +50,10 @@ The namespace names come from the convention, not from anything you write in the
    terraform/infra-terraform/scripts/sync-registry-to-k8s.sh \
      --env production --user all --namespace <namespace>
    ```
-   The secret in `prodtest-<app>` must be able to read the **`staging/`** registry path:
-   prodtest promotes the image staging built rather than rebuilding it.
+   `prodtest-<app>` needs this against **prod-k8s's own** registry: prodtest builds its
+   own image under `prodtest/<app>` rather than promoting staging's. Only a repo that
+   opts into promotion with `environments.prodtest.repositoryPrefix: staging` needs a
+   secret there that can read the **stage-k8s** registry's `staging/` path instead.
 4. **GitHub Environment created** — one per environment — with the ten platform keys plus
    the app's own keys. See [env-contract.md](env-contract.md).
 5. **`KUBECONFIG_BASE64` is the per-namespace ServiceAccount kubeconfig**, one per

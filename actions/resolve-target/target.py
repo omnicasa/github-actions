@@ -17,14 +17,19 @@ Two conventions live here, and only here:
   stage-k8s beside `<app>`, `prodtest-<app>` on prod-k8s beside `<app>`. This is
   a default, not a rule: `environments.<env>.namespace` is still taken verbatim.
 
-* **Registry prefix.** Normally the environment name, so an image ref states the
-  environment it was built for. `prodtest` is the exception: it deploys the
-  artifact staging already built and tested, so it reads from `staging/<app>`
-  rather than rebuilding the same commit under its own prefix.
+* **Registry prefix.** Always the environment name, so an image ref states the
+  environment it was built for. `prodtest` used to be an exception, reading
+  `staging/<app>` because it promoted the artifact staging had already tested.
+  That is no longer the default: stage-k8s and prod-k8s have SEPARATE OVH
+  registries, so a prodtest pod on prod-k8s reaching for `staging/<app>` needs
+  stage-registry credentials in a prod-k8s namespace — which no namespace on this
+  estate has. The default now builds prodtest its own image, in its own cluster's
+  registry, under its own prefix. A repo that has solved the cross-registry
+  problem opts back in with `environments.prodtest.repositoryPrefix: staging`.
 
-An environment absent from both tables behaves exactly as it did before this
-module existed, which is what keeps repos on the two-environment flow working
-untouched.
+An environment absent from the namespace table behaves exactly as it did before
+this module existed, which is what keeps repos on the two-environment flow
+working untouched.
 """
 
 from __future__ import annotations
@@ -49,11 +54,16 @@ NAMESPACE_PREFIX = {
     "prodtest": "prodtest-",
 }
 
-# Environments whose image is promoted rather than built. Absent means "the
-# environment name is the prefix", which is the rule for everything else.
-REPOSITORY_PREFIX = {
-    "prodtest": "staging",
-}
+# Environments whose image is promoted rather than built, as
+# {environment: prefix-to-read-from}. Absent means "the environment name is the
+# prefix", which is now the rule for everything.
+#
+# This held `{"prodtest": "staging"}` until prodtest stopped promoting by default —
+# see the module docstring. It is kept, empty, because promotion is still the better
+# design wherever one registry serves both clusters: the entry to add back is the
+# whole change, and a repo can already do it per-app via
+# `environments.<env>.repositoryPrefix`.
+REPOSITORY_PREFIX: dict[str, str] = {}
 
 
 class Target(NamedTuple):

@@ -55,10 +55,10 @@ feat/* ─PR─> staging ─merge─> ─PR─> main ─merge─>
 |---|---|---|---|
 | dev | stage-k8s | `dev-<app>` | `dev/<app>:<sha>` |
 | staging | stage-k8s | `<app>` | `staging/<app>:<sha>` |
-| prodtest | prod-k8s | `prodtest-<app>` | `staging/<app>:<sha>` — promoted, not rebuilt |
+| prodtest | prod-k8s | `prodtest-<app>` | `prodtest/<app>:<sha>` — built, not promoted |
 | production | prod-k8s | `<app>` | `production/<app>:<sha>` |
 
-The namespaces and the promoted image path are conventions applied by the shared
+The namespaces and the image paths are conventions applied by the shared
 workflow; no app repo writes them down. Turn an environment off with
 `environments.<env>.enabled: false` in the manifest and its jobs skip green.
 
