@@ -120,7 +120,7 @@ jobs:
     runs-on: ${{ inputs.runs-on }}
     steps:
       - name: Notify deploys channel
-        uses: omnicasa/github-actions/actions/teams-notify@v1
+        uses: omnicasa/github-actions/actions/teams-notify@feat/teams-notify-repo-in-title
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS }}
           # success()/failure() are only valid at the top of an `if:`, not inside a
@@ -137,7 +137,7 @@ jobs:
 
       - name: Notify alerts channel
         if: contains(needs.*.result, 'failure')
-        uses: omnicasa/github-actions/actions/teams-notify@v1
+        uses: omnicasa/github-actions/actions/teams-notify@feat/teams-notify-repo-in-title
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}
           status: failure
