@@ -6,6 +6,20 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.9.1] — 2026-09-05
+
+### Fixed
+
+- **The `notify` job added in v1.9.0 broke every caller's deploy/rollback.**
+  `failure()` was used inside a `with:` field to pick the Teams message status and
+  title. GitHub only allows `success()`/`failure()`/`always()`/`cancelled()` at the
+  top of an `if:` conditional; used anywhere else the caller fails to resolve with
+  `Unrecognized function: 'failure'` before any job runs. Replaced with
+  `contains(needs.*.result, 'failure')`, a plain function valid in either place.
+
+  Anyone who pinned `v1.9.0` must move to `v1.9.1`; every deploy and rollback on that
+  tag fails at workflow-resolution time, regardless of environment.
+
 ## [v1.9.0] — 2026-09-05
 
 ### Added
