@@ -495,13 +495,14 @@ jobs:
           status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
           title: ${{ contains(needs.*.result, 'failure') && format('⚠️ {0} — Production deploy failed', github.repository) || format('✅ {0} — Production deploy succeeded', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Repository is dropped: it's already in the title. Namespace and App are
+          # one line: they're the same string for production (namespace convention
+          # takes the app name verbatim there), so two facts would just repeat it.
           facts: |
-            Repository: ${{ github.repository }}
             Triggered by: ${{ github.actor }}
             Ref: ${{ github.ref_name }}
             Image tag: ${{ needs.build.outputs.image-tag }}
-            App: ${{ needs.resolve.outputs.app }}
-            Namespace: ${{ needs.resolve.outputs.namespace }}
+            Namespace/App: ${{ needs.resolve.outputs.namespace }}/${{ needs.resolve.outputs.app }}
             Resolve: ${{ needs.resolve.result }}
             Build: ${{ needs.build.result }}
             Deploy: ${{ needs.deploy.result }}
@@ -516,13 +517,11 @@ jobs:
           status: failure
           title: ${{ format('🚨 {0} — Production deploy failed', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # One "Failed at" line instead of three job-result rows: this channel is
+          # failure-only, so the reader wants the culprit at a glance, not a checklist.
           facts: |
-            Repository: ${{ github.repository }}
             Triggered by: ${{ github.actor }}
             Ref: ${{ github.ref_name }}
             Image tag: ${{ needs.build.outputs.image-tag }}
-            App: ${{ needs.resolve.outputs.app }}
-            Namespace: ${{ needs.resolve.outputs.namespace }}
-            Resolve: ${{ needs.resolve.result }}
-            Build: ${{ needs.build.result }}
-            Deploy: ${{ needs.deploy.result }}
+            Namespace/App: ${{ needs.resolve.outputs.namespace }}/${{ needs.resolve.outputs.app }}
+            Failed at: ${{ needs.resolve.result == 'failure' && 'resolve' || (needs.build.result == 'failure' && 'build' || 'deploy') }}
