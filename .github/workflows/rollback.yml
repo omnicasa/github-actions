@@ -91,7 +91,10 @@ jobs:
           timeout: ${{ inputs.timeout }}
 
       - name: Diagnostics
-        if: failure()
+        # Same gate as deploy.yml: k8s-diagnostics errors on a blank namespace/release,
+        # which is what it gets if "Read app and namespace from the manifest" is what
+        # failed — running it anyway crashes instead of skipping.
+        if: failure() && steps.manifest.outcome == 'success'
         uses: omnicasa/github-actions/actions/k8s-diagnostics@v1
         with:
           namespace: ${{ steps.manifest.outputs.namespace }}

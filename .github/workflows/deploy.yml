@@ -447,7 +447,13 @@ jobs:
       - name: Diagnostics
         # The single highest-value step here: --atomic rolls back before the job
         # ends and deletes the failed pods, events and logs.
-        if: failure()
+        #
+        # Gated on render's own outcome: k8s-diagnostics requires namespace/release
+        # and errors on blank ones. A failure IN "Render Helm values" itself (e.g. a
+        # manifest `required:` key with no value in this environment) means those
+        # outputs were never set — running this step anyway crashes it instead of
+        # skipping, masking the real error (the render failure) with an unrelated one.
+        if: failure() && steps.render.outcome == 'success'
         uses: omnicasa/github-actions/actions/k8s-diagnostics@v1
         with:
           namespace: ${{ steps.render.outputs.namespace }}
