@@ -91,9 +91,8 @@ jobs:
           timeout: ${{ inputs.timeout }}
 
       - name: Diagnostics
-        # Same gate as deploy.yml: k8s-diagnostics errors on a blank namespace/release,
-        # which is what it gets if "Read app and namespace from the manifest" is what
-        # failed — running it anyway crashes instead of skipping.
+        # Same gate as deploy.yml: blank namespace/release (a failed manifest read)
+        # crashes k8s-diagnostics instead of skipping it.
         if: failure() && steps.manifest.outcome == 'success'
         uses: omnicasa/github-actions/actions/k8s-diagnostics@v1
         with:
@@ -116,9 +115,8 @@ jobs:
   notify:
     name: Notify Teams (production)
     needs: rollback
-    # Same shape as deploy.yml's notify job, including the missing `environment:`
-    # — see that comment. A rollback is by definition an incident already in
-    # progress; the alert must not wait on the approval the failed release skipped.
+    # Same shape as deploy.yml's notify job (see there for why no `environment:`).
+    # An incident already in progress must not wait on an approval it never got.
     if: always() && inputs.environment == 'production'
     runs-on: ${{ inputs.runs-on }}
     steps:
@@ -126,14 +124,13 @@ jobs:
         uses: omnicasa/github-actions/actions/teams-notify@feat/teams-notify-repo-in-title
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS }}
-          # success()/failure() are only valid at the top of an `if:`, not inside a
-          # `with:` expression. contains() is a plain function, valid in either place.
+          # success()/failure() only work at the top of an if:, not inside with:;
+          # contains() is a plain function and works in both places.
           status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
           title: ${{ contains(needs.*.result, 'failure') && format('⚠️ {0} — Production rollback failed', github.repository) || format('✅ {0} — Production rollback succeeded', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Repository is dropped: it's already in the title.
-          # Rollback result is dropped when it's success — the title's ✅/⚠️ already
-          # says so; a blank line here (only) prints when it's not.
+          # Repository dropped: already in the title. Rollback line blank (dropped)
+          # unless it didn't succeed — the title's ✅/⚠️ already says so.
           facts: |
             Triggered by: ${{ github.actor }}
             Revision requested: ${{ inputs.revision || 'previous' }}
@@ -148,9 +145,8 @@ jobs:
           status: failure
           title: ${{ format('🚨 {0} — Production rollback failed', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Repository is dropped: it's already in the title.
-          # Rollback result is dropped when it's success — the title's ✅/⚠️ already
-          # says so; a blank line here (only) prints when it's not.
+          # Repository dropped: already in the title. Rollback line blank (dropped)
+          # unless it didn't succeed — the title's ✅/⚠️ already says so.
           facts: |
             Triggered by: ${{ github.actor }}
             Revision requested: ${{ inputs.revision || 'previous' }}

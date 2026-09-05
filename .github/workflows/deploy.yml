@@ -448,11 +448,10 @@ jobs:
         # The single highest-value step here: --atomic rolls back before the job
         # ends and deletes the failed pods, events and logs.
         #
-        # Gated on render's own outcome: k8s-diagnostics requires namespace/release
-        # and errors on blank ones. A failure IN "Render Helm values" itself (e.g. a
-        # manifest `required:` key with no value in this environment) means those
-        # outputs were never set — running this step anyway crashes it instead of
-        # skipping, masking the real error (the render failure) with an unrelated one.
+        # Gated on render's own outcome: if "Render Helm values" is what failed (e.g.
+        # a manifest `required:` key with no value here), its outputs were never set
+        # — running k8s-diagnostics anyway crashes on blank namespace/release instead
+        # of skipping, masking the real error.
         if: failure() && steps.render.outcome == 'success'
         uses: omnicasa/github-actions/actions/k8s-diagnostics@v1
         with:
@@ -482,12 +481,9 @@ jobs:
   notify:
     name: Notify Teams (production)
     needs: [resolve, test, build, deploy]
-    # `always()` so this still runs when an earlier job failed — that is the case
-    # most worth reporting. Scoped to production only: dev/staging/prodtest churn
-    # too often to page anyone. No `environment:` here on purpose — MSTEAMS_* are
-    # org-level secrets precisely so this job never queues behind production's
-    # required-reviewer gate; declaring `environment: production` would make a
-    # failure alert wait for the same approval the failed deploy never got.
+    # always(): a failed earlier job is the case most worth reporting. No
+    # `environment:`: MSTEAMS_* are org-level secrets on purpose, so this never
+    # queues behind production's required-reviewer gate like the failed deploy did.
     if: always() && (inputs.environment || github.ref_name) == 'production'
     runs-on: ${{ inputs.runs-on }}
     steps:
@@ -495,15 +491,13 @@ jobs:
         uses: omnicasa/github-actions/actions/teams-notify@feat/teams-notify-repo-in-title
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS }}
-          # success()/failure() are only valid at the top of an `if:` — not inside a
-          # `with:` expression, which is what this needs to be to pick the title text.
-          # contains() is a plain function, so it works in either place.
+          # success()/failure() only work at the top of an if:, not inside with:;
+          # contains() is a plain function and works in both places.
           status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
           title: ${{ contains(needs.*.result, 'failure') && format('⚠️ {0} — Production deploy failed', github.repository) || format('✅ {0} — Production deploy succeeded', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Repository is dropped: it's already in the title. "Failed at" is blank
-          # (and so dropped by teams-notify, which skips blank fact lines) unless a
-          # job actually failed — success is the boring, expected case.
+          # Repository dropped: already in the title. "Failed at" is blank (and
+          # dropped) unless a job actually failed.
           facts: |
             Triggered by: ${{ github.actor }}
             Ref: ${{ github.ref_name }}
@@ -511,8 +505,7 @@ jobs:
             App: ${{ needs.resolve.outputs.namespace }} / ${{ needs.resolve.outputs.app }}
             ${{ contains(needs.*.result, 'failure') && format('Failed at: {0}', needs.resolve.result == 'failure' && 'resolve' || (needs.test.result == 'failure' && 'test' || (needs.build.result == 'failure' && 'build' || 'deploy'))) || '' }}
 
-      # Same event, second channel: this one is failures only, for whoever is on
-      # call and does not want the noise of every successful release too.
+      # Failures only, for on-call — without the noise of every success too.
       - name: Notify alerts channel
         if: contains(needs.*.result, 'failure')
         uses: omnicasa/github-actions/actions/teams-notify@feat/teams-notify-repo-in-title
