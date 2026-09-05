@@ -493,7 +493,7 @@ jobs:
           # `with:` expression, which is what this needs to be to pick the title text.
           # contains() is a plain function, so it works in either place.
           status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
-          title: ${{ contains(needs.*.result, 'failure') && '⚠️ Production deploy failed' || '✅ Production deploy succeeded' }}
+          title: ${{ contains(needs.*.result, 'failure') && format('⚠️ {0} — Production deploy failed', github.repository) || format('✅ {0} — Production deploy succeeded', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           facts: |
             Repository: ${{ github.repository }}
@@ -514,7 +514,7 @@ jobs:
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}
           status: failure
-          title: 🚨 Production deploy failed
+          title: ${{ format('🚨 {0} — Production deploy failed', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           facts: |
             Repository: ${{ github.repository }}
