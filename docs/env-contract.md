@@ -80,6 +80,16 @@ name.
 | **Repository** | almost nothing — see below |
 | **Environment** | `KUBECONFIG_BASE64`, `OVH_KUBERNETES_ID`, `IMAGE_PULL_SECRET_NAME`, the `OVH_REGISTRY` trio, and every app variable and secret |
 
+### MS Teams notification secrets
+
+`MSTEAMS_WEBHOOK_URL_DEPLOYS` and `MSTEAMS_WEBHOOK_URL_ALERTS` are optional and, unlike
+every other secret above, must stay **organization**-scoped rather than per-environment.
+The production `deploy.yml`/`rollback.yml` notify job deliberately declares no
+`environment:`, so it never queues behind production's required-reviewer gate — an
+environment-scoped secret would force it to. Grant them to a repo via the org secret's
+access list; a repo without access just gets a blank value and the notify step no-ops.
+See [multi-environment.md](multi-environment.md#production-alerts-to-ms-teams).
+
 ### One scope per key, all four environments or none
 
 If a key differs in *any* environment, set it at the environment scope in **all** of them

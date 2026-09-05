@@ -1,0 +1,41 @@
+name: MS Teams notify
+description: >-
+  Post an Adaptive Card to a Microsoft Teams incoming webhook. No-ops if
+  webhook-url is blank, so a repo without the org secret granted just skips.
+
+# Composite actions cannot read the `secrets` context, so the webhook URL arrives
+# as an input; a value passed via `with:` from `${{ secrets.* }}` stays masked in
+# the log. MS Teams retired the legacy Office 365 Connector webhook — this sends
+# the Adaptive Card envelope the replacement Power Automate "Workflows" webhook
+# expects. A plain MessageCard payload is silently dropped by that trigger.
+
+inputs:
+  webhook-url:
+    description: Power Automate workflow webhook URL. Blank skips the post entirely.
+    required: true
+  status:
+    description: success | failure — picks the card's accent colour
+    required: true
+  title:
+    description: Card title
+    required: true
+  facts:
+    description: 'Multiline "Key: Value" pairs, rendered as an Adaptive Card FactSet'
+    required: false
+    default: ""
+  run-url:
+    description: Link added as an "Open run" button. Blank omits the button.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        WEBHOOK_URL: ${{ inputs.webhook-url }}
+        STATUS: ${{ inputs.status }}
+        TITLE: ${{ inputs.title }}
+        FACTS: ${{ inputs.facts }}
+        RUN_URL: ${{ inputs.run-url }}
+      run: bash "${{ github.action_path }}/notify.sh"
