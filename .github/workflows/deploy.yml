@@ -495,17 +495,22 @@ jobs:
           status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
           title: ${{ contains(needs.*.result, 'failure') && format('⚠️ {0} — Production deploy failed', github.repository) || format('✅ {0} — Production deploy succeeded', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Repository is dropped: it's already in the title. Namespace and App are
-          # one line: they're the same string for production (namespace convention
-          # takes the app name verbatim there), so two facts would just repeat it.
+          # Repository is dropped: it's already in the title. Namespace is dropped
+          # too: it's the same string as App for production (the namespace
+          # convention takes the app name verbatim there), so it'd just repeat App.
+          # Each job-result line is blank (and so dropped by teams-notify, which
+          # skips blank fact lines) unless that job did NOT succeed — success is the
+          # boring, expected case and doesn't need a line; failure or an unexpected
+          # skip does.
           facts: |
             Triggered by: ${{ github.actor }}
             Ref: ${{ github.ref_name }}
             Image tag: ${{ needs.build.outputs.image-tag }}
-            Namespace/App: ${{ needs.resolve.outputs.namespace }}/${{ needs.resolve.outputs.app }}
-            Resolve: ${{ needs.resolve.result }}
-            Build: ${{ needs.build.result }}
-            Deploy: ${{ needs.deploy.result }}
+            App: ${{ needs.resolve.outputs.app }}
+            ${{ needs.resolve.result != 'success' && format('Resolve: {0}', needs.resolve.result) || '' }}
+            ${{ needs.test.result == 'failure' && 'Test: failure' || '' }}
+            ${{ needs.build.result != 'success' && format('Build: {0}', needs.build.result) || '' }}
+            ${{ needs.deploy.result != 'success' && format('Deploy: {0}', needs.deploy.result) || '' }}
 
       # Same event, second channel: this one is failures only, for whoever is on
       # call and does not want the noise of every successful release too.
@@ -517,11 +522,12 @@ jobs:
           status: failure
           title: ${{ format('🚨 {0} — Production deploy failed', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # One "Failed at" line instead of three job-result rows: this channel is
-          # failure-only, so the reader wants the culprit at a glance, not a checklist.
           facts: |
             Triggered by: ${{ github.actor }}
             Ref: ${{ github.ref_name }}
             Image tag: ${{ needs.build.outputs.image-tag }}
-            Namespace/App: ${{ needs.resolve.outputs.namespace }}/${{ needs.resolve.outputs.app }}
-            Failed at: ${{ needs.resolve.result == 'failure' && 'resolve' || (needs.build.result == 'failure' && 'build' || 'deploy') }}
+            App: ${{ needs.resolve.outputs.app }}
+            ${{ needs.resolve.result != 'success' && format('Resolve: {0}', needs.resolve.result) || '' }}
+            ${{ needs.test.result == 'failure' && 'Test: failure' || '' }}
+            ${{ needs.build.result != 'success' && format('Build: {0}', needs.build.result) || '' }}
+            ${{ needs.deploy.result != 'success' && format('Deploy: {0}', needs.deploy.result) || '' }}

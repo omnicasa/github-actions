@@ -129,11 +129,13 @@ jobs:
           title: ${{ contains(needs.*.result, 'failure') && format('⚠️ {0} — Production rollback failed', github.repository) || format('✅ {0} — Production rollback succeeded', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           # Repository is dropped: it's already in the title.
+          # Rollback result is dropped when it's success — the title's ✅/⚠️ already
+          # says so; a blank line here (only) prints when it's not.
           facts: |
             Triggered by: ${{ github.actor }}
             Revision requested: ${{ inputs.revision || 'previous' }}
             Revision after: ${{ needs.rollback.outputs.revision }}
-            Rollback: ${{ needs.rollback.result }}
+            ${{ needs.rollback.result != 'success' && format('Rollback: {0}', needs.rollback.result) || '' }}
 
       - name: Notify alerts channel
         if: contains(needs.*.result, 'failure')
@@ -144,8 +146,10 @@ jobs:
           title: ${{ format('🚨 {0} — Production rollback failed', github.repository) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           # Repository is dropped: it's already in the title.
+          # Rollback result is dropped when it's success — the title's ✅/⚠️ already
+          # says so; a blank line here (only) prints when it's not.
           facts: |
             Triggered by: ${{ github.actor }}
             Revision requested: ${{ inputs.revision || 'previous' }}
             Revision after: ${{ needs.rollback.outputs.revision }}
-            Rollback: ${{ needs.rollback.result }}
+            ${{ needs.rollback.result != 'success' && format('Rollback: {0}', needs.rollback.result) || '' }}
