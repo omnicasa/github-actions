@@ -472,3 +472,54 @@ jobs:
           consumer-key: ${{ secrets.OVH_GA_CONSUMER_KEY }}
           # Must not mask the real deploy failure with an allowlist error.
           fail-on-error: "false"
+
+  notify:
+    name: Notify Teams (production)
+    needs: [resolve, test, build, deploy]
+    # `always()` so this still runs when an earlier job failed — that is the case
+    # most worth reporting. Scoped to production only: dev/staging/prodtest churn
+    # too often to page anyone. No `environment:` here on purpose — MSTEAMS_* are
+    # org-level secrets precisely so this job never queues behind production's
+    # required-reviewer gate; declaring `environment: production` would make a
+    # failure alert wait for the same approval the failed deploy never got.
+    if: always() && (inputs.environment || github.ref_name) == 'production'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Notify deploys channel
+        uses: omnicasa/github-actions/actions/teams-notify@v1
+        with:
+          webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS }}
+          status: ${{ failure() && 'failure' || 'success' }}
+          title: ${{ failure() && '⚠️ Production deploy failed' || '✅ Production deploy succeeded' }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          facts: |
+            Repository: ${{ github.repository }}
+            Triggered by: ${{ github.actor }}
+            Ref: ${{ github.ref_name }}
+            Image tag: ${{ needs.build.outputs.image-tag }}
+            App: ${{ needs.resolve.outputs.app }}
+            Namespace: ${{ needs.resolve.outputs.namespace }}
+            Resolve: ${{ needs.resolve.result }}
+            Build: ${{ needs.build.result }}
+            Deploy: ${{ needs.deploy.result }}
+
+      # Same event, second channel: this one is failures only, for whoever is on
+      # call and does not want the noise of every successful release too.
+      - name: Notify alerts channel
+        if: failure()
+        uses: omnicasa/github-actions/actions/teams-notify@v1
+        with:
+          webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}
+          status: failure
+          title: 🚨 Production deploy failed
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          facts: |
+            Repository: ${{ github.repository }}
+            Triggered by: ${{ github.actor }}
+            Ref: ${{ github.ref_name }}
+            Image tag: ${{ needs.build.outputs.image-tag }}
+            App: ${{ needs.resolve.outputs.app }}
+            Namespace: ${{ needs.resolve.outputs.namespace }}
+            Resolve: ${{ needs.resolve.result }}
+            Build: ${{ needs.build.result }}
+            Deploy: ${{ needs.deploy.result }}

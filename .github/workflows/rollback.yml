@@ -109,3 +109,41 @@ jobs:
           application-secret: ${{ secrets.OVH_GA_APPLICATION_SECRET }}
           consumer-key: ${{ secrets.OVH_GA_CONSUMER_KEY }}
           fail-on-error: "false"
+
+  notify:
+    name: Notify Teams (production)
+    needs: rollback
+    # Same shape as deploy.yml's notify job, including the missing `environment:`
+    # — see that comment. A rollback is by definition an incident already in
+    # progress; the alert must not wait on the approval the failed release skipped.
+    if: always() && inputs.environment == 'production'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Notify deploys channel
+        uses: omnicasa/github-actions/actions/teams-notify@v1
+        with:
+          webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS }}
+          status: ${{ failure() && 'failure' || 'success' }}
+          title: ${{ failure() && '⚠️ Production rollback failed' || '✅ Production rollback succeeded' }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          facts: |
+            Repository: ${{ github.repository }}
+            Triggered by: ${{ github.actor }}
+            Revision requested: ${{ inputs.revision || 'previous' }}
+            Revision after: ${{ needs.rollback.outputs.revision }}
+            Rollback: ${{ needs.rollback.result }}
+
+      - name: Notify alerts channel
+        if: failure()
+        uses: omnicasa/github-actions/actions/teams-notify@v1
+        with:
+          webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}
+          status: failure
+          title: 🚨 Production rollback failed
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          facts: |
+            Repository: ${{ github.repository }}
+            Triggered by: ${{ github.actor }}
+            Revision requested: ${{ inputs.revision || 'previous' }}
+            Revision after: ${{ needs.rollback.outputs.revision }}
+            Rollback: ${{ needs.rollback.result }}

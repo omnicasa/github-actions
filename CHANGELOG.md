@@ -8,6 +8,27 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 ## [Unreleased]
 
+### Added
+
+- **Production deploys and rollbacks can now notify Microsoft Teams.** `deploy.yml` and
+  `rollback.yml` each gained a `notify` job, scoped to `production` only, via the new
+  `actions/teams-notify`. Two channels: `MSTEAMS_WEBHOOK_URL_DEPLOYS` posts every
+  production deploy or rollback, success or failure; `MSTEAMS_WEBHOOK_URL_ALERTS` posts
+  failures only. Both are optional **organization**-scoped secrets — a repo without
+  either just gets a blank webhook-url and the notify step no-ops.
+
+  They must stay org-scoped rather than per-environment: the notify job declares no
+  `environment:` on purpose, so a failure alert is never stuck waiting behind
+  production's required-reviewer gate. See
+  [multi-environment.md](docs/multi-environment.md#production-alerts-to-ms-teams).
+
+  The webhook is a Power Automate "Workflows" incoming webhook, not the legacy Office
+  365 Connector — Microsoft retired the latter, and it silently drops the Adaptive Card
+  payload this sends.
+
+  **Migration.** No repo has either secret today, so nothing changes for anyone on this
+  bump until an org secret is created and granted.
+
 ### Changed
 
 - **`prodtest` now builds its own image instead of promoting staging's.** Its default
