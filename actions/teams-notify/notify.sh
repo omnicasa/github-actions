@@ -35,7 +35,9 @@ body_json=$(jq -n \
         type: "AdaptiveCard",
         version: "1.4",
         body: (
-          [{type: "TextBlock", text: $title, weight: "Bolder", size: "Medium", color: $color, wrap: true}]
+          # TextBlock text supports markdown, so the headline itself becomes the link
+          # when a run-url is given, rather than only the button below.
+          [{type: "TextBlock", text: (if $runUrl != "" then "[\($title)](\($runUrl))" else $title end), weight: "Bolder", size: "Medium", color: $color, wrap: true}]
           + (if ($facts | length) > 0 then [{type: "FactSet", facts: $facts}] else [] end)
         ),
         actions: (if $runUrl != "" then [{type: "Action.OpenUrl", title: "Open run", url: $runUrl}] else [] end)
