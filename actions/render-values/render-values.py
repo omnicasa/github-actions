@@ -27,12 +27,10 @@ Keys absent from the manifest allowlist are ignored outright — including
 `github_token` — so nothing the app did not ask for reaches the cluster.
 
 Tier 2, optional: DOPPLER_SECRETS_FILE points at a JSON file (name -> value) the
-actions/doppler-secrets action wrote. Present names there override the same name
-from `vars`/`secrets` — Doppler is deliberately allowed to win, GitHub is the
-fallback. Passed as a file, never a step output or an env var, so a masked value
-cannot survive into the raw log through a missed mask elsewhere. Platform keys
-(OVH_*, KUBECONFIG_BASE64, ...) are stripped by the fetcher before this file is
-ever written, so this script does not repeat that denylist.
+actions/doppler-secrets action wrote. Present names there override `vars`/`secrets`
+by design. Passed as a file, never a step output or env var, so a masked value
+can't survive a missed mask elsewhere. Platform keys are denied here too, as a
+second check independent of the fetcher's own — see PLATFORM_KEYS in target.py.
 """
 
 from __future__ import annotations

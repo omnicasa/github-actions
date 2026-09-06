@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """Fetch this environment's Doppler secrets via GitHub OIDC, for render-values to merge in.
 
-No static Doppler token anywhere: this job's own GitHub-minted OIDC token is
-exchanged for a short-lived Doppler token (POST /v3/auth/oidc), scoped to whatever
-the identity's trust relationship and Doppler project-membership allow. See
-docs/env-contract.md for the manifest's secretSources block.
+No static Doppler token: the job's own OIDC token is exchanged for a short-lived
+Doppler one (POST /v3/auth/oidc), scoped by the identity's trust rule and Doppler
+project-membership. See docs/env-contract.md for the manifest's secretSources block.
 
-SECURITY INVARIANT: prints key names only, never a value. Doppler's own "masked"
-flag does not touch the raw workflow log, and a multi-line secret needs every line
-masked individually or lines after the first leak in plain text.
+SECURITY INVARIANT: prints key names only, never a value — mask every line of a
+multi-line secret, or lines after the first leak in plain text.
 """
 
 from __future__ import annotations
