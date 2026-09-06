@@ -43,6 +43,7 @@ jobs:
           actions/render-build-args/render-build-args.py
           actions/resolve-target/target.py
           actions/resolve-target/resolve.py
+          actions/doppler-secrets/doppler_secrets.py
           scripts/validate-manifest.py"
           # shellcheck disable=SC2086  # word splitting is the point
           python3 -m py_compile $files
@@ -170,6 +171,63 @@ jobs:
           print("commas and JSON survived intact; derived value on the variables side")
           PY
           rm -f /tmp/*-values.json
+
+      - name: Doppler overlay overrides by name, platform keys stay denied
+        run: |
+          set -euo pipefail
+          # Same base context as the previous step, minus the canaries this one
+          # doesn't need. AUTH_SECRET and SMTP_HOST are overridden by the Doppler
+          # overlay; the rest proves everything not overridden still comes from
+          # GitHub, and that a platform key smuggled into the overlay never survives.
+          export VARS_JSON='{"OVH_REGISTRY":"reg.example","IMAGE_PULL_SECRET_NAME":"ovh-reg","APP_DOMAIN":"tools.example.com","NODE_ENV":"production","SMTP_HOST":"github-smtp.example","SMTP_PORT":"587","EMAIL_FROM":"noreply@example","AUTH_TRUST_HOST":"true","CUSTOMER_DB_CONNECT_TIMEOUT_MS":"45000"}'
+          export SECRETS_JSON='{"AUTH_SECRET":"CANARY_GITHUB_AUTH","CRM_CUSTOMER_DATABASE_URL":"Server=h;Password=CANARY_CRM","OMNICASA_DATABASE_URL":"Server=h2;Password=CANARY_OMNI","CUSTOMER_DB_HOST_MAP":"{\"a\":\"1.2.3.4\"}","POSTMARK_API_KEY":"CANARY_PM"}'
+          export ENVIRONMENT=production IMAGE_TAG=deadbeef
+          export DEPLOY_MANIFEST=tests/fixtures/omnicasa-tools/deploy-manifest.yml
+          export RELEASE_VALUES_OUT=/tmp/release-values.json
+          export APP_ENV_VALUES_OUT=/tmp/app-env-values.json
+
+          # KUBECONFIG_BASE64 is a platform key and must never reach either output
+          # file, however it got into the overlay. UNUSED_DOPPLER_KEY is not in the
+          # manifest allowlist and must be dropped like any GitHub-sourced key would be.
+          export DOPPLER_SECRETS_FILE=/tmp/doppler-secrets.json
+          cat > "$DOPPLER_SECRETS_FILE" <<'JSON'
+          {"AUTH_SECRET":"CANARY_DOPPLER_AUTH","SMTP_HOST":"doppler-smtp.example","KUBECONFIG_BASE64":"CANARY_KUBECONFIG","UNUSED_DOPPLER_KEY":"CANARY_UNUSED"}
+          JSON
+
+          python3 actions/render-values/render-values.py > /tmp/render-doppler.log 2>&1
+          cat /tmp/render-doppler.log
+
+          if grep -qE 'CANARY_DOPPLER_AUTH|doppler-smtp.example|CANARY_KUBECONFIG|CANARY_UNUSED|CANARY_GITHUB_AUTH' /tmp/render-doppler.log; then
+            echo "::error::render-values.py printed a value it should only ever name"; exit 1
+          fi
+
+          # The provenance line names the two overridden keys, and only by name.
+          grep -q 'tier 2 (Doppler) overrides: AUTH_SECRET, SMTP_HOST' /tmp/render-doppler.log \
+            || { echo "::error::missing or wrong provenance line for the Doppler override"; exit 1; }
+          grep -q 'not in the manifest allowlist, ignored: UNUSED_DOPPLER_KEY' /tmp/render-doppler.log \
+            || { echo "::error::missing provenance line for the unused Doppler key"; exit 1; }
+
+          python3 - <<'PY'
+          import json
+          env = json.load(open("/tmp/app-env-values.json"))["config"]["env"]
+          secrets, variables = env["secrets"], env["variables"]
+
+          assert secrets["AUTH_SECRET"] == "CANARY_DOPPLER_AUTH", "Doppler did not win over GitHub"
+          assert variables["SMTP_HOST"] == "doppler-smtp.example", "Doppler did not win over GitHub"
+          # Untouched keys still come from GitHub.
+          assert secrets["CRM_CUSTOMER_DATABASE_URL"] == "Server=h;Password=CANARY_CRM"
+
+          release = json.load(open("/tmp/release-values.json"))
+          assert release["image"]["registry"] == "reg.example", "release values must ignore the overlay entirely"
+          print("Doppler overlay overrides by name; platform key and unlisted key both dropped")
+          PY
+
+          # The platform key must not have reached the cluster-facing file either,
+          # under any key name — belt and braces on top of the JSON-level assertions.
+          if grep -q 'CANARY_KUBECONFIG' /tmp/release-values.json /tmp/app-env-values.json; then
+            echo "::error::a platform-key value from the Doppler overlay reached a rendered file"; exit 1
+          fi
+          rm -f /tmp/*-values.json /tmp/doppler-secrets.json
 
       - name: Render build args with planted secrets, assert none appear
         run: |

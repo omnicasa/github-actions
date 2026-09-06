@@ -376,6 +376,12 @@ jobs:
     # expression is repeated inline rather than factored into a variable. Referencing
     # `env` here fails silently — the job runs with no environment at all.
     environment: ${{ inputs.environment || github.ref_name }}
+    # id-token: write is for the optional Doppler tier (actions/doppler-secrets) to
+    # request this job's GitHub OIDC token. Job-level permissions replace the
+    # workflow-level default rather than adding to it, so contents: read is repeated.
+    permissions:
+      contents: read
+      id-token: write
     concurrency:
       group: ${{ github.repository }}-${{ inputs.environment || github.ref_name }}
       # Never cancel a run mid-`helm upgrade`: it leaves the release in
@@ -411,9 +417,22 @@ jobs:
           application-secret: ${{ secrets.OVH_GA_APPLICATION_SECRET }}
           consumer-key: ${{ secrets.OVH_GA_CONSUMER_KEY }}
 
+      - name: Fetch Doppler secrets
+        id: doppler
+        # TEMP for sang-demo testing on this branch — DO NOT MERGE. `uses:` cannot
+        # follow the outer workflow's own ref, so this and render-values below must
+        # be pinned to the same branch by hand while testing, then reverted to @v1.
+        uses: omnicasa/github-actions/actions/doppler-secrets@feat/doppler-secrets-tier2
+        with:
+          environment: ${{ inputs.environment || github.ref_name }}
+          manifest-path: ${{ inputs.manifest-path }}
+          doppler-identity-id: ${{ vars.DOPPLER_IDENTITY_ID }}
+
       - name: Render Helm values
         id: render
-        uses: omnicasa/github-actions/actions/render-values@v1
+        # TEMP for sang-demo testing on this branch — DO NOT MERGE. See the note on
+        # "Fetch Doppler secrets" above; both must move together.
+        uses: omnicasa/github-actions/actions/render-values@feat/doppler-secrets-tier2
         with:
           manifest-path: ${{ inputs.manifest-path }}
           environment: ${{ inputs.environment || github.ref_name }}
@@ -425,6 +444,9 @@ jobs:
           # listed there — github_token included — is dropped by the renderer.
           vars-json: ${{ toJSON(vars) }}
           secrets-json: ${{ toJSON(secrets) }}
+          # Blank unless the manifest configured secretSources.doppler for this
+          # environment — the fetch step then no-ops and this stays "".
+          doppler-secrets-file: ${{ steps.doppler.outputs.secrets-file }}
 
       - name: Deploy with Helm
         id: helm
@@ -460,7 +482,7 @@ jobs:
 
       - name: Remove rendered values
         if: always()
-        run: rm -f /tmp/release-values.json /tmp/app-env-values.json
+        run: rm -f /tmp/release-values.json /tmp/app-env-values.json /tmp/doppler-secrets.json
 
       - name: Remove runner IP
         if: always()

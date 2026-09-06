@@ -111,6 +111,18 @@ buildArgs:
   secrets: []
   # - NPM_TOKEN
 
+# Optional tier 2: override app keys (never platform keys) from Doppler, per GitHub
+# Environment, authenticated by GitHub OIDC — no static Doppler token anywhere.
+# See docs/env-contract.md#tier-2--doppler-optional before adding this.
+# secretSources:
+#   - provider: doppler
+#     project: my-app
+#     configs:
+#       dev: dev
+#       staging: stg
+#       prodtest: prd_prodtest
+#       production: prd
+
 # Migrations are NOT configured here. The chart reads `migration.*` straight from
 # deploy/values.yaml, so putting it in both files would mean two switches with no
 # sync between them — and only the values.yaml one would take effect.

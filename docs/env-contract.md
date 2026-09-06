@@ -227,6 +227,109 @@ So the order of preference is: read it at runtime from the ConfigMap or Secret; 
 build truly cannot defer it, `buildArgs`; and if it is a credential, `buildArgs.secrets`.
 A value read at runtime also changes with a `helm upgrade` instead of a rebuild.
 
+## Tier 2 — Doppler (optional)
+
+Everything above is tier 1: the GitHub Environment is the only source of truth. A repo
+can add Doppler as tier 2 for its app keys — never the platform keys — by authenticating
+with GitHub OIDC and no static Doppler token anywhere. Deploy-time only: `render-values`
+merges the overlay in; `render-build-args` does not, because a build-arg secret bakes
+into the image unless the Dockerfile already uses `--mount=type=secret`, and that is a
+separate review this feature does not make for you.
+
+### Manifest surface
+
+```yaml
+secretSources:
+  - provider: doppler
+    project: sang-demo          # Doppler project slug
+    onError: fail                # fail (default) or warn — see below
+    configs:                     # GitHub Environment -> Doppler config
+      dev: dev
+      staging: stg
+      prodtest: prd_prodtest     # a branch config under prd, not prd itself
+      production: prd
+```
+
+No implicit mapping: a GitHub Environment absent from `configs` means tier 2 is off for
+that environment, silently and correctly — most repos will not map all four. At most one
+`provider: doppler` entry; `scripts/validate-manifest.py` catches a second one, a missing
+`project`, an empty `configs`, and a bad `onError`.
+
+### Authentication: OIDC, two identities per repo
+
+No `DOPPLER_TOKEN` secret, ever. The deploy job requests its own GitHub OIDC token
+(`permissions: id-token: write`), `actions/doppler-secrets` exchanges it for a
+short-lived Doppler token (`POST /v3/auth/oidc`), scoped entirely by two things set up
+once per repo in the Doppler dashboard:
+
+- **The identity's `sub` claim trust rule** — which repo and which GitHub Environment may
+  authenticate at all. GitHub's `sub` claim carries immutable org/repo IDs, not names
+  (`repo:omnicasa@<org-id>/<repo>@<repo-id>:environment:<env>`), so a repo rename or
+  transfer cannot inherit a stale trust rule the way a name-based match would.
+- **The identity's Doppler project-membership environments** — which Doppler *configs*
+  that identity may read, independent of the `sub` claim.
+
+Both must be scoped, not just one. `dev` deploys from PR head branches, and a PR can edit
+its own manifest — so if a single identity could authenticate from `dev` *and* read `prd`,
+a PR that changed `configs.dev` to `prd` would legitimately read production secrets.
+**Use two identities per repo**, not one:
+
+```
+gha-<repo>-nonprod   viewer on Doppler environments [dev, stg]
+    sub: repo:omnicasa@<org-id>/<repo>@<repo-id>:environment:dev
+    sub: repo:omnicasa@<org-id>/<repo>@<repo-id>:environment:staging
+
+gha-<repo>-prod      viewer on Doppler environments [prd]
+    sub: repo:omnicasa@<org-id>/<repo>@<repo-id>:environment:prodtest
+    sub: repo:omnicasa@<org-id>/<repo>@<repo-id>:environment:production
+```
+
+A manifest pointing `dev` at `prd` then gets a 403 from Doppler, not a secret — the
+project-membership boundary holds even though the `sub` claim would have let the run
+authenticate.
+
+`DOPPLER_IDENTITY_ID` is not a credential by itself — useless without a signed GitHub
+token whose `sub` matches. It is an 11th platform-side **variable**, environment-scoped
+like everything else in this contract: `vars.DOPPLER_IDENTITY_ID` set per GitHub
+Environment, holding whichever of the two identities above is right for that environment.
+The var being environment-scoped and the `sub` claim naming that same environment is a
+deliberate cross-check — the two must agree, or the fetch fails closed.
+
+### Precedence and safety rules the merge enforces
+
+- **Doppler overrides GitHub, by name.** `render-values.py` builds `{**vars, **secrets,
+  **doppler}` — the manifest's `env.variables`/`env.secrets` allowlist is what decides
+  ConfigMap vs Secret either way, regardless of which tier supplied the value.
+- **Platform keys are never overridable.** `OVH_*`, `KUBECONFIG_BASE64` and
+  `IMAGE_PULL_SECRET_NAME` are denied in two places independently — once when
+  `actions/doppler-secrets` fetches, once when `render-values.py` merges — so a Doppler
+  config carrying one of these names by accident cannot redirect a deploy to a different
+  cluster. Doppler config-write is a much wider grant than GitHub production-environment
+  write; this is why the two are never allowed to trade places.
+- **Fail closed.** The default `onError: fail` means a configured tier that cannot be
+  fetched fails the deploy rather than silently falling back to a stale GitHub value,
+  which would ship the wrong config and still look green. Set `onError: warn` only for a
+  repo that has decided a missing Doppler fetch should degrade to tier 1, not stop the
+  deploy.
+- **Provenance, names only.** `render-values.py` logs exactly which keys Doppler
+  overrode, and separately which fetched keys the manifest never asked for — both as
+  `::notice::` lines naming keys, never values. A wrong-tier value is then a glance at the
+  run log instead of a diff across two dashboards.
+- **Masking.** GitHub does not mask what a runtime fetch returns on its own;
+  `actions/doppler-secrets` masks every value it reads, and a multi-line value line by
+  line — the base64 caveat earlier in this document applies here too: masking the
+  plaintext does not mask its base64 form.
+
+### Not in scope yet
+
+`rollback.yml` never re-renders values — it calls `resolve-target` and `helm-rollback`
+only, so a rollback replays whatever the previous `helm upgrade` already stored. Doppler
+cannot retroactively change what a rollback restores, and that property is intentional:
+do not wire tier 2 into the rollback path.
+
+A third tier, Azure Key Vault, is designed to slot in the same way — one more fetch
+step, same merge point, same fail-closed and platform-key rules — but is not implemented.
+
 ## Per-environment values
 
 The environment name doubles as the registry repository prefix:

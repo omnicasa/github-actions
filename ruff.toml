@@ -37,5 +37,11 @@ ignore = [
 # i.e. never on a runner. The files are mode 0600 in a 0700 directory and the build
 # job shreds them under `if: always()`.
 "actions/render-build-args/render-build-args.py" = ["S108"]
+# S108: same reasoning as render-values.py above.
+# S310: every url passed to urlopen() here is either the DOPPLER_API constant or
+#   ACTIONS_ID_TOKEN_REQUEST_URL, which the runner sets to a fixed GitHub https:// —
+#   never attacker- or config-controlled, so the file:// / custom-scheme risk bandit
+#   warns about does not apply.
+"actions/doppler-secrets/doppler_secrets.py" = ["S108", "S310"]
 "actions/resolve-target/target.py" = ["BLE001"]
 "scripts/validate-manifest.py" = ["BLE001"]

@@ -54,6 +54,25 @@ NAMESPACE_PREFIX = {
     "prodtest": "prodtest-",
 }
 
+# The ten platform keys from docs/env-contract.md. Never overridable by a secret
+# tier (Doppler, and later Azure Key Vault) — that grant is a far wider blast radius
+# than GitHub production-environment write, and the whole point of a denylist here
+# is that it does not depend on every tier's fetcher remembering to apply it too.
+PLATFORM_KEYS = frozenset(
+    {
+        "OVH_REGISTRY",
+        "OVH_REGISTRY_USERNAME",
+        "OVH_REGISTRY_PASSWORD",
+        "OVH_PROJECT_ID",
+        "OVH_KUBERNETES_ID",
+        "IMAGE_PULL_SECRET_NAME",
+        "OVH_GA_APPLICATION_KEY",
+        "OVH_GA_APPLICATION_SECRET",
+        "OVH_GA_CONSUMER_KEY",
+        "KUBECONFIG_BASE64",
+    }
+)
+
 # Environments whose image is promoted rather than built, as
 # {environment: prefix-to-read-from}. Absent means "the environment name is the
 # prefix", which is now the rule for everything.

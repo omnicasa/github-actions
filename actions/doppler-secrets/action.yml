@@ -1,0 +1,52 @@
+name: Fetch Doppler secrets
+description: >-
+  Exchange this job's GitHub OIDC token for a short-lived Doppler token and fetch one
+  Doppler config's secrets, for render-values to merge in as tier 2. No-ops cleanly
+  when the manifest has no secretSources.doppler entry for this environment.
+
+inputs:
+  environment:
+    description: Resolved environment name — selects secretSources.doppler.configs.<environment>
+    required: true
+  manifest-path:
+    description: Path to the deploy manifest in the caller repo
+    required: false
+    default: .github/deploy-manifest.yml
+  doppler-identity-id:
+    description: >-
+      Doppler Service Account Identity ID for this environment's OIDC trust
+      relationship. Not a credential by itself, useless without a signed GitHub
+      token whose sub claim matches the identity's trust rule. Store it in an
+      environment-scoped vars.DOPPLER_IDENTITY_ID.
+    required: false
+    default: ""
+  output-file:
+    description: Where to write the fetched secrets, as a flat JSON object of name to value
+    required: false
+    default: /tmp/doppler-secrets.json
+
+outputs:
+  secrets-file:
+    description: >-
+      Path to the fetched secrets file, or empty if this environment has no
+      secretSources.doppler entry (tier 2 is off for this deploy).
+    value: ${{ steps.fetch.outputs.secrets-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install PyYAML
+      shell: bash
+      run: python3 -m pip install --quiet --disable-pip-version-check pyyaml
+
+    - id: fetch
+      shell: bash
+      # ACTIONS_ID_TOKEN_REQUEST_URL/_TOKEN are injected by the runner into every
+      # step's process environment once the caller job declares
+      # `permissions: id-token: write` — no explicit env: mapping needed for those two.
+      env:
+        DEPLOY_MANIFEST: ${{ inputs.manifest-path }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        DOPPLER_IDENTITY_ID: ${{ inputs.doppler-identity-id }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+      run: python3 "${{ github.action_path }}/doppler_secrets.py"

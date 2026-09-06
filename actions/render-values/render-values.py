@@ -25,6 +25,14 @@ SECURITY INVARIANT: this script prints key *names* only, never values. The
 every secret into the job log. Keep every diagnostic on the name side.
 Keys absent from the manifest allowlist are ignored outright — including
 `github_token` — so nothing the app did not ask for reaches the cluster.
+
+Tier 2, optional: DOPPLER_SECRETS_FILE points at a JSON file (name -> value) the
+actions/doppler-secrets action wrote. Present names there override the same name
+from `vars`/`secrets` — Doppler is deliberately allowed to win, GitHub is the
+fallback. Passed as a file, never a step output or an env var, so a masked value
+cannot survive into the raw log through a missed mask elsewhere. Platform keys
+(OVH_*, KUBECONFIG_BASE64, ...) are stripped by the fetcher before this file is
+ever written, so this script does not repeat that denylist.
 """
 
 from __future__ import annotations
@@ -40,7 +48,7 @@ from pathlib import Path
 # plain clone (which is how CI exercises this file).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "resolve-target"))
 
-from target import emit_output, fail, notice, resolve_from_env, warn  # noqa: E402
+from target import PLATFORM_KEYS, emit_output, fail, notice, resolve_from_env, warn  # noqa: E402
 
 RELEASE_OUT = Path(os.environ.get("RELEASE_VALUES_OUT", "/tmp/release-values.json"))
 APP_ENV_OUT = Path(os.environ.get("APP_ENV_VALUES_OUT", "/tmp/app-env-values.json"))
@@ -66,6 +74,39 @@ def load_context(var_name: str) -> dict:
         fail(f"{var_name} decoded to {type(data).__name__}, expected an object")
     # Empty strings mean "declared but not set" — treat them as absent so the
     # app falls back to its own defaults instead of being handed "".
+    return {k: v for k, v in data.items() if isinstance(v, str) and v != ""}
+
+
+def load_doppler_overlay() -> dict[str, str]:
+    """Read tier 2's fetched secrets, if the caller ran actions/doppler-secrets.
+
+    A blank env var means the tier was never configured for this environment — not
+    an error. A set path that fails to read IS an error: actions/doppler-secrets
+    already succeeded and wrote it, so a missing or corrupt file means something
+    went wrong between the two steps, and silently deploying on GitHub's values
+    alone would ship the wrong config without saying so.
+    """
+    raw_path = os.environ.get("DOPPLER_SECRETS_FILE", "").strip()
+    if not raw_path:
+        return {}
+    path = Path(raw_path)
+    if not path.is_file():
+        fail(f"DOPPLER_SECRETS_FILE={path} does not exist")
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        fail(f"{path} is not valid JSON: {exc}")
+    if not isinstance(data, dict):
+        fail(f"{path} decoded to {type(data).__name__}, expected an object")
+
+    # Second line of defense: actions/doppler-secrets already strips these before
+    # writing the file. Seeing this fire means that filter was bypassed somehow —
+    # worth a loud warning even though the key never reaches `everything` either way.
+    denied = sorted(set(data) & PLATFORM_KEYS)
+    if denied:
+        warn("tier 2 (Doppler) carried platform key name(s), dropped: " + ", ".join(denied))
+        data = {k: v for k, v in data.items() if k not in PLATFORM_KEYS}
+
     return {k: v for k, v in data.items() if isinstance(v, str) and v != ""}
 
 
@@ -137,6 +178,7 @@ def main() -> None:
 
     gh_vars = load_context("VARS_JSON")
     gh_secrets = load_context("SECRETS_JSON")
+    doppler = load_doppler_overlay()
 
     image_tag = os.environ.get("IMAGE_TAG", "").strip()
     if not image_tag:
@@ -147,7 +189,8 @@ def main() -> None:
     # A blank ingress host renders a structurally valid but useless Ingress, and
     # a blank connection string starts a pod that crash-loops. Both are worse
     # than never starting the upgrade.
-    everything = {**gh_vars, **gh_secrets}
+    # Doppler wins on a name collision — it is tier 2, GitHub is the tier-1 fallback.
+    everything = {**gh_vars, **gh_secrets, **doppler}
     missing_required = [k for k in as_list(manifest, "required") if k not in everything]
     if missing_required:
         fail(
@@ -182,6 +225,18 @@ def main() -> None:
         warn(
             "not set, omitted from the release (the app keeps its own default): "
             + ", ".join(omitted)
+        )
+
+    # Highest-value log line in the whole feature: names only, so a wrong-tier
+    # value is a glance at the run log instead of a diff across three settings pages.
+    overridden = sorted((set(variable_names) | set(secret_names)) & set(doppler))
+    if overridden:
+        notice("tier 2 (Doppler) overrides: " + ", ".join(overridden))
+    unused_doppler = sorted(set(doppler) - set(variable_names) - set(secret_names))
+    if unused_doppler:
+        notice(
+            "fetched from Doppler but not in the manifest allowlist, ignored: "
+            + ", ".join(unused_doppler)
         )
 
     # A secret declared in `env.secrets` but present only in `vars` is almost
