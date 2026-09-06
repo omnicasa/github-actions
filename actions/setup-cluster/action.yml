@@ -37,7 +37,7 @@ runs:
   steps:
     # Tag-pinned, matching the refs already proven in Omnicasa-Oauth2-Consent-App.
     # TODO: Dependabot's first PR will replace these with SHAs; take it.
-    - uses: azure/setup-helm@v4.2.0
+    - uses: azure/setup-helm@v5.0.1
       with:
         version: ${{ inputs.helm-version }}
 
