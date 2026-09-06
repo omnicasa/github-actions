@@ -419,10 +419,7 @@ jobs:
 
       - name: Fetch Doppler secrets
         id: doppler
-        # TEMP for sang-demo testing on this branch — DO NOT MERGE. `uses:` cannot
-        # follow the outer workflow's own ref, so this and render-values below must
-        # be pinned to the same branch by hand while testing, then reverted to @v1.
-        uses: omnicasa/github-actions/actions/doppler-secrets@feat/doppler-secrets-tier2
+        uses: omnicasa/github-actions/actions/doppler-secrets@v1
         with:
           environment: ${{ inputs.environment || github.ref_name }}
           manifest-path: ${{ inputs.manifest-path }}
@@ -430,9 +427,7 @@ jobs:
 
       - name: Render Helm values
         id: render
-        # TEMP for sang-demo testing on this branch — DO NOT MERGE. See the note on
-        # "Fetch Doppler secrets" above; both must move together.
-        uses: omnicasa/github-actions/actions/render-values@feat/doppler-secrets-tier2
+        uses: omnicasa/github-actions/actions/render-values@v1
         with:
           manifest-path: ${{ inputs.manifest-path }}
           environment: ${{ inputs.environment || github.ref_name }}
