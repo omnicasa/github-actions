@@ -8,7 +8,24 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 ## [Unreleased]
 
+### Changed
+
+- **Teams alert cards are more useful at a glance.** The title now names the
+  repository (`⚠️ omnicasa/app — Production deploy failed`) and is itself a
+  clickable link to the run, in addition to the existing "Open run" button. The
+  fact list is trimmed: `Repository` is dropped (already in the title), `App` is
+  one line (`<namespace> / <app>`), and the per-job breakdown collapses to a
+  single `Failed at: <job>` line that's blank — and dropped — on success.
+
 ### Fixed
+
+- **A failure in "Render Helm values" (deploy) or "Read app and namespace from
+  the manifest" (rollback) crashed the Diagnostics step instead of skipping it.**
+  `k8s-diagnostics` requires namespace/release and errors on blank ones; the
+  Diagnostics step ran on any earlier failure in the job, including the one that
+  produces those values. Gated on the producing step's own outcome instead.
+  Found live while exercising the Teams alert path on `sang-demo` with a
+  deliberately-missing `required:` manifest key.
 
 - **`helm-rollback` could leave a release stuck in `pending-rollback`, and hid the
   revision on a failed rollback.** Found live: a rollback onto an unhealthy revision
