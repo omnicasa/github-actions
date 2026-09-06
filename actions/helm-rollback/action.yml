@@ -23,7 +23,10 @@ inputs:
 
 outputs:
   revision:
-    description: Helm revision after the rollback
+    description: >-
+      Helm revision after the attempt, whatever it ended up being — captured even
+      when the rollback failed, since on-call needs to know where the release
+      actually landed, not just where it was aimed.
     value: ${{ steps.rollback.outputs.revision }}
 
 runs:
@@ -46,6 +49,29 @@ runs:
           echo '```'
         } >> "$GITHUB_STEP_SUMMARY"
 
+    - name: Unstick a pending release
+      shell: bash
+      env:
+        RELEASE: ${{ inputs.release }}
+        NAMESPACE: ${{ inputs.namespace }}
+      run: |
+        set -euo pipefail
+        # Same recovery helm-deploy runs before its upgrade. `helm rollback` has no
+        # --atomic (no Helm 3 version does), so a timed-out rollback leaves the
+        # release stuck in pending-rollback with nothing to clear it — including a
+        # later rollback attempt.
+        status=$(helm status "$RELEASE" -n "$NAMESPACE" -o json 2>/dev/null \
+                 | jq -r '.info.status // empty' || true)
+        case "$status" in
+          pending-upgrade|pending-install|pending-rollback)
+            echo "::warning::release stuck in $status — rolling back before retrying"
+            helm rollback "$RELEASE" -n "$NAMESPACE" || true
+            ;;
+          *)
+            echo "release status: ${status:-not installed}"
+            ;;
+        esac
+
     - name: Roll back
       id: rollback
       shell: bash
@@ -55,16 +81,27 @@ runs:
         REVISION: ${{ inputs.revision }}
         TIMEOUT: ${{ inputs.timeout }}
       run: |
-        set -euo pipefail
-        # An empty revision argument means "the previous release" to helm.
+        set -uo pipefail
+        # Not `set -e`: a failed rollback must still reach the revision capture
+        # below, or on-call is told nothing about where the release landed.
+        # --cleanup-on-fail is the closest rollback gets to --atomic: it deletes
+        # resources this attempt created if it fails. An empty revision argument
+        # means "the previous release" to helm.
         # shellcheck disable=SC2086
         helm rollback "$RELEASE" $REVISION \
           -n "$NAMESPACE" \
           --wait \
+          --cleanup-on-fail \
           --timeout "$TIMEOUT"
+        rc=$?
 
         rev=$(helm status "$RELEASE" -n "$NAMESPACE" -o json | jq -r '.version')
         echo "revision=$rev" >> "$GITHUB_OUTPUT"
+
+        if [ "$rc" -ne 0 ]; then
+          echo "::error::rollback failed; release is now at revision $rev"
+          exit "$rc"
+        fi
         echo "::notice::rolled back $RELEASE to revision $rev"
 
     - name: Verify rollout

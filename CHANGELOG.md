@@ -27,6 +27,19 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
   Found live while exercising the Teams alert path on `sang-demo` with a
   deliberately-missing `required:` manifest key.
 
+- **`helm-rollback` could leave a release stuck in `pending-rollback`, and hid the
+  revision on a failed rollback.** Found live: a rollback onto an unhealthy revision
+  timed out and left the release locked, blocking every later operation.
+  `helm rollback` has no `--atomic` (no Helm 3 version does), so unlike
+  `helm-deploy` it had no recovery. It now runs the same "unstick a pending
+  release" step `helm-deploy` runs before its upgrade, and adds
+  `--cleanup-on-fail` (the closest rollback gets to atomic).
+
+  Separately, the `revision` output was only captured after a successful
+  rollback — a failed one exited before `helm status` ran, so the alert reported
+  no revision at all. It's now captured either way, so on-call sees where the
+  release actually landed.
+
 ## [v1.9.1] — 2026-09-05
 
 ### Fixed
