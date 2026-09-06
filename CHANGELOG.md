@@ -6,6 +6,21 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [Unreleased]
+
+### Added
+
+- **Optional Doppler-backed secret tier for app keys.** A manifest's
+  `secretSources` block maps each GitHub Environment to a Doppler config;
+  `actions/doppler-secrets` fetches it via a GitHub OIDC exchange (no static
+  Doppler token stored anywhere) and `render-values` merges it over the
+  GitHub-resolved values, Doppler winning by name. Platform keys (`OVH_*`,
+  `KUBECONFIG_BASE64`, `IMAGE_PULL_SECRET_NAME`) are denied in both the fetcher
+  and the merge and can never be overridden this way. Fails the deploy by
+  default if a configured fetch fails (`onError: warn` opts out). Deploy-time
+  only — build args and rollback are unaffected. See
+  [env-contract.md](docs/env-contract.md#tier-2--doppler-optional).
+
 ## [v1.9.2] — 2026-09-06
 
 ### Changed

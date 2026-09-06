@@ -27,6 +27,13 @@ inputs:
     description: Path to the deploy manifest in the caller repo
     required: false
     default: .github/deploy-manifest.yml
+  doppler-secrets-file:
+    description: >-
+      Path to the JSON file actions/doppler-secrets wrote (output secrets-file).
+      Blank means tier 2 is off for this deploy. Names present there override the
+      same name from vars/secrets.
+    required: false
+    default: ""
   repository:
     description: Override the computed <prefix>/<app> registry repository
     required: false
@@ -76,6 +83,7 @@ runs:
         REPOSITORY: ${{ inputs.repository }}
         VARS_JSON: ${{ inputs.vars-json }}
         SECRETS_JSON: ${{ inputs.secrets-json }}
+        DOPPLER_SECRETS_FILE: ${{ inputs.doppler-secrets-file }}
         RELEASE_VALUES_OUT: ${{ inputs.release-values-out }}
         APP_ENV_VALUES_OUT: ${{ inputs.app-env-values-out }}
       run: python3 "${{ github.action_path }}/render-values.py"

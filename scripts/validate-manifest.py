@@ -39,11 +39,13 @@ KNOWN_TOP_LEVEL = {
     "ingress", "required", "env", "environments", "repositoryPrefix",
     "buildArgs",
     "helmValues",
+    "secretSources",
     # Top level, this pauses every environment at once — a one-line way to stop a
     # repo deploying during an incident without deleting the workflow. Per
     # environment it lives under environments.<env>.enabled.
     "enabled",
 }
+KNOWN_SECRET_SOURCE_PROVIDERS = {"doppler"}
 # Kubernetes names: RFC 1123 labels.
 DNS_NAME = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -104,6 +106,47 @@ def check_secret_mounts(path: Path, data: dict, names: list[str]) -> None:
             f"{path}: {dockerfile.name} uses secret mounts but has no `# syntax=` "
             "directive on line 1; add `# syntax=docker/dockerfile:1.7`"
         )
+
+
+def check_secret_sources(path: Path, data: dict) -> None:
+    sources = data.get("secretSources")
+    if sources is None:
+        return
+    if not isinstance(sources, list):
+        err(f"{path}: 'secretSources' must be a list")
+        return
+
+    doppler_count = 0
+    for i, source in enumerate(sources):
+        where = f"secretSources[{i}]"
+        if not isinstance(source, dict):
+            err(f"{path}: {where} must be a mapping")
+            continue
+        provider = source.get("provider")
+        if provider not in KNOWN_SECRET_SOURCE_PROVIDERS:
+            err(
+                f"{path}: {where}.provider must be one of "
+                f"{sorted(KNOWN_SECRET_SOURCE_PROVIDERS)}, not {provider!r}"
+            )
+            continue
+        doppler_count += 1
+
+        if not source.get("project"):
+            err(f"{path}: {where}.project is required")
+
+        configs = source.get("configs")
+        if not isinstance(configs, dict) or not configs:
+            err(
+                f"{path}: {where}.configs must be a non-empty mapping of "
+                "GitHub Environment -> Doppler config"
+            )
+
+        on_error = source.get("onError", "fail")
+        if on_error not in ("fail", "warn"):
+            err(f"{path}: {where}.onError must be 'fail' or 'warn', not {on_error!r}")
+
+    if doppler_count > 1:
+        err(f"{path}: secretSources has {doppler_count} 'doppler' entries — only one is supported")
 
 
 def check(path: Path) -> None:
@@ -276,6 +319,8 @@ def check(path: Path) -> None:
             f"{path}: 'helmValues' is deprecated and outranks deploy/values.yaml; "
             "move those keys into deploy/values.yaml"
         )
+
+    check_secret_sources(path, data)
 
     # The chart reads migration.* from deploy/values.yaml. A copy here is a second
     # switch that reads as authoritative and has no effect at all.
