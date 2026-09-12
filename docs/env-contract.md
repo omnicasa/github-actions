@@ -262,6 +262,12 @@ No `DOPPLER_TOKEN` secret, ever. The deploy job requests its own GitHub OIDC tok
 short-lived Doppler token (`POST /v3/auth/oidc`), scoped entirely by two things set up
 once per repo in the Doppler dashboard:
 
+> The `id-token: write` grant in the **caller** is not Doppler-specific and is not
+> optional. The reusable `deploy` job declares it unconditionally, and a called
+> workflow's permissions may only be equal to or more restrictive than the caller's —
+> so a caller granting `contents: read` alone fails the deploy job on v1.10.0+ even
+> with no `secretSources:` block. `scripts/check-workflow.sh` fails on its absence.
+
 - **The identity's `sub` claim trust rule** — which repo and which GitHub Environment may
   authenticate at all. GitHub's `sub` claim carries immutable org/repo IDs, not names
   (`repo:omnicasa@<org-id>/<repo>@<repo-id>:environment:<env>`), so a repo rename or

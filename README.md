@@ -26,6 +26,9 @@ on:
         default: false
 permissions:
   contents: read
+  # Not optional and not Doppler-specific: the reusable `deploy` job declares
+  # `id-token: write`, and a called workflow cannot hold more than its caller.
+  id-token: write
 jobs:
   deploy:
     uses: omnicasa/github-actions/.github/workflows/deploy.yml@v1.0.0

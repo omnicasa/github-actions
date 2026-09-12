@@ -35,6 +35,11 @@ on:
 
 permissions:
   contents: read
+  # The reusable deploy workflow's `deploy` job declares `id-token: write` — a called
+  # workflow's permissions can only be EQUAL OR MORE RESTRICTIVE than the caller's, so
+  # a caller that grants less fails the job outright rather than degrading. Required
+  # since v1.10.0 whether or not this repo uses the Doppler tier that consumes the token.
+  id-token: write
 
 jobs:
   deploy:

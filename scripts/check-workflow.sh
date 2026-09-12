@@ -74,6 +74,13 @@ for f in $WORKFLOWS; do
     grep -q 'secrets: inherit' "$f" \
       || fail "$f calls the deploy workflow without 'secrets: inherit'; nothing will resolve"
 
+    # A called workflow's permissions can only be equal or more restrictive than the
+    # caller's, and the reusable deploy job declares id-token: write unconditionally.
+    # A caller granting only contents: read fails the deploy job on v1.10.0+ — not
+    # for repos using the Doppler tier, for all of them.
+    grep -qE '^\s*id-token: *write' "$f" \
+      || fail "$f does not grant 'id-token: write'; the reusable deploy job requests it and a caller cannot grant less"
+
     ref=$(grep -o 'deploy\.yml@[^ ]*' "$f" | head -1 | cut -d@ -f2)
     case "$ref" in
       # The house standard is the floating major tag. It is moved only by

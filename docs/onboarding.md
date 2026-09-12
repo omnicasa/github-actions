@@ -116,6 +116,12 @@ the same file for everyone — the guard's `staging` trigger is inert in a repo 
 The branch guard goes in either way: the branch naming is enforced whether or not PRs
 deploy anything.
 
+Keep the deploy caller's `permissions:` block as the template ships it — `contents: read`
+**and** `id-token: write`. The reusable `deploy` job declares `id-token: write`, and a
+called workflow can only be granted permissions equal to or narrower than the caller's,
+so trimming it does not degrade to "no OIDC", it fails the job. The rollback caller does
+not need it: reusable `rollback.yml` declares no job-level permissions.
+
 Then, in the repo's settings — four-environment flow:
 
 - Make `guard / Branch naming` a required status check on `staging` **and** on `main`.
@@ -214,5 +220,9 @@ successful-looking deploy.
   there silently deploys a second release into a namespace nobody is watching.
 - **`tlsSecretName`** must match the app's existing certificate Secret, or cert-manager
   issues a new one during the cutover.
+- **A caller cannot grant fewer permissions than the workflow it calls asks for.** The
+  reusable `deploy` job requests `id-token: write` unconditionally, so a caller with only
+  `contents: read` fails there — with a permissions error, not a missing-token symptom.
+  This bit every repo migrated before v1.10.0.
 - **The image tag is always the commit SHA.** If anything still pulls `:latest`, it will
   silently keep running the old image. Grep for it before cutting over.
