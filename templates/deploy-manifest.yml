@@ -111,7 +111,7 @@ buildArgs:
   secrets: []
   # - NPM_TOKEN
 
-# Optional tier 2: override app keys (never platform keys) from Doppler, per GitHub
+# Optional tier 2: override app keys (never githubOnly keys) from Doppler, per GitHub
 # Environment, authenticated by GitHub OIDC — no static Doppler token anywhere.
 # See docs/env-contract.md#tier-2--doppler-optional before adding this.
 # secretSources:

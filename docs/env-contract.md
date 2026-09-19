@@ -230,8 +230,9 @@ A value read at runtime also changes with a `helm upgrade` instead of a rebuild.
 ## Tier 2 — Doppler (optional)
 
 Everything above is tier 1: the GitHub Environment is the only source of truth. A repo
-can add Doppler as tier 2 for its app keys — never the platform keys — by authenticating
-with GitHub OIDC and no static Doppler token anywhere. Deploy-time only: `render-values`
+can add Doppler as tier 2 for its app keys — never a `githubOnly` key (the platform keys,
+`APP_DOMAIN`/`domainVar`, and any the manifest lists) — by authenticating with GitHub
+OIDC and no static Doppler token anywhere. Deploy-time only: `render-values`
 merges the overlay in; `render-build-args` does not, because a build-arg secret bakes
 into the image unless the Dockerfile already uses `--mount=type=secret`, and that is a
 separate review this feature does not make for you.
@@ -248,12 +249,16 @@ secretSources:
       staging: stg
       prodtest: prd_prodtest     # a branch config under prd, not prd itself
       production: prd
+
+githubOnly:                      # optional; see "githubOnly keys" below
+  - STRIPE_SECRET_KEY
 ```
 
 No implicit mapping: a GitHub Environment absent from `configs` means tier 2 is off for
 that environment, silently and correctly — most repos will not map all four. At most one
 `provider: doppler` entry; `scripts/validate-manifest.py` catches a second one, a missing
-`project`, an empty `configs`, and a bad `onError`.
+`project`, an empty `configs`, and a bad `onError`, plus an invalid `githubOnly` name
+(and warns on one the manifest never reads).
 
 ### Authentication: OIDC, two identities per repo
 
@@ -346,7 +351,7 @@ cannot retroactively change what a rollback restores, and that property is inten
 do not wire tier 2 into the rollback path.
 
 A third tier, Azure Key Vault, is designed to slot in the same way — one more fetch
-step, same merge point, same fail-closed and platform-key rules — but is not implemented.
+step, same merge point, same fail-closed and `githubOnly` rules — but is not implemented.
 
 ## Per-environment values
 
