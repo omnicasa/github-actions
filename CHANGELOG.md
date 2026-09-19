@@ -6,6 +6,15 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [Unreleased]
+
+### Changed
+
+- **Default `replicaCount` is now `2` in every environment.** Applies to the chart
+  default and to `templates/values.yaml`. An app whose `deploy/values.yaml` (or
+  `deploy/values.<env>.yaml`) still sets `replicaCount: 1` keeps one replica; drop
+  or raise that key to pick up the new default. Doubles pod requests per app.
+
 ## [v1.10.0] — 2026-09-06
 
 ### Added

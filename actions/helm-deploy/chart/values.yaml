@@ -12,7 +12,7 @@
 # (and reaches the chart via 4 and 5). Anything identical across environments but
 # specific to one app belongs in 2. Only genuinely universal defaults belong here.
 
-replicaCount: 1
+replicaCount: 2
 
 # How many old ReplicaSets to keep. Enough to see what changed, not enough to clutter.
 revisionHistoryLimit: 5
