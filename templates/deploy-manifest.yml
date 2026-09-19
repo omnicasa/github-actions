@@ -122,6 +122,10 @@ buildArgs:
 #       staging: stg
 #       prodtest: prd_prodtest
 #       production: prd
+#
+# App keys no secretSources tier may supply. Doppler carrying one fails the deploy.
+# githubOnly:
+#   - STRIPE_SECRET_KEY
 
 # Migrations are NOT configured here. The chart reads `migration.*` straight from
 # deploy/values.yaml, so putting it in both files would mean two switches with no

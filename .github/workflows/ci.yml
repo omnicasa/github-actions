@@ -229,6 +229,46 @@ jobs:
           fi
           rm -f /tmp/*-values.json /tmp/doppler-secrets.json
 
+      - name: githubOnly key in the Doppler overlay fails the deploy
+        run: |
+          set -euo pipefail
+          export VARS_JSON='{"OVH_REGISTRY":"reg.example","IMAGE_PULL_SECRET_NAME":"ovh-reg","APP_DOMAIN":"tools.example.com"}'
+          export SECRETS_JSON='{"AUTH_SECRET":"CANARY_GITHUB_AUTH","POSTMARK_API_KEY":"CANARY_GITHUB_PM"}'
+          export ENVIRONMENT=production IMAGE_TAG=deadbeef
+          export RELEASE_VALUES_OUT=/tmp/release-values.json
+          export APP_ENV_VALUES_OUT=/tmp/app-env-values.json
+          export DOPPLER_SECRETS_FILE=/tmp/doppler-secrets.json
+
+          # The fixture mirrors a real repo byte for byte, so pin on a copy.
+          export DEPLOY_MANIFEST=/tmp/pinned-manifest.yml
+          cp tests/fixtures/omnicasa-tools/deploy-manifest.yml "$DEPLOY_MANIFEST"
+          printf 'githubOnly:\n  - POSTMARK_API_KEY\n' >> "$DEPLOY_MANIFEST"
+          python3 scripts/validate-manifest.py "$DEPLOY_MANIFEST"
+
+          # Overlay without the pinned key: renders, and the GitHub value is used.
+          echo '{"AUTH_SECRET":"CANARY_DOPPLER_AUTH"}' > "$DOPPLER_SECRETS_FILE"
+          python3 actions/render-values/render-values.py > /tmp/render-pinned-ok.log 2>&1 \
+            || { cat /tmp/render-pinned-ok.log; echo "::error::render failed without a pinned key in the overlay"; exit 1; }
+          python3 -c 'import json; s=json.load(open("/tmp/app-env-values.json"))["config"]["env"]["secrets"]; assert s["POSTMARK_API_KEY"]=="CANARY_GITHUB_PM"'
+          rm -f /tmp/*-values.json
+
+          # Overlay carrying the pinned key: hard failure, naming the key, not its value.
+          echo '{"AUTH_SECRET":"CANARY_DOPPLER_AUTH","POSTMARK_API_KEY":"CANARY_DOPPLER_PM"}' > "$DOPPLER_SECRETS_FILE"
+          if python3 actions/render-values/render-values.py > /tmp/render-pinned.log 2>&1; then
+            cat /tmp/render-pinned.log
+            echo "::error::render-values accepted a githubOnly key from Doppler"; exit 1
+          fi
+          cat /tmp/render-pinned.log
+          grep -q 'githubOnly key(s) POSTMARK_API_KEY' /tmp/render-pinned.log \
+            || { echo "::error::failure does not name the pinned key"; exit 1; }
+          if grep -qE 'CANARY_' /tmp/render-pinned.log; then
+            echo "::error::render-values printed a value it should only ever name"; exit 1
+          fi
+          if [ -e /tmp/app-env-values.json ]; then
+            echo "::error::render-values wrote values despite failing"; exit 1
+          fi
+          rm -f /tmp/*-values.json /tmp/doppler-secrets.json "$DEPLOY_MANIFEST"
+
       - name: Render build args with planted secrets, assert none appear
         run: |
           set -euo pipefail

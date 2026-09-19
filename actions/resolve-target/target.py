@@ -136,6 +136,16 @@ def load_manifest(path: Path) -> dict:
     return data
 
 
+def github_only_keys(manifest: dict) -> frozenset[str]:
+    """The manifest's `githubOnly` list: app keys no secretSources tier may supply."""
+    raw = manifest.get("githubOnly")
+    if raw is None:
+        return frozenset()
+    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+        fail("manifest key 'githubOnly' must be a list of key names")
+    return frozenset(raw)
+
+
 def apply_environment_overrides(manifest: dict, environment: str) -> tuple[dict, set[str]]:
     """Fold `environments.<environment>` into the top level of the manifest.
 

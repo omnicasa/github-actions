@@ -8,6 +8,15 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 ## [Unreleased]
 
+### Added
+
+- **`githubOnly` manifest key: pin app keys to the GitHub Environment.** Names listed
+  there are never taken from a `secretSources` tier. If Doppler holds one, the deploy
+  fails (regardless of `onError`), naming the key so it can be deleted from Doppler.
+  Enforced in both `actions/doppler-secrets` and `render-values`; checked by
+  `validate-manifest.py`. Opt-in — manifests without the key are unaffected. See
+  [env-contract.md](docs/env-contract.md#precedence-and-safety-rules-the-merge-enforces).
+
 ### Changed
 
 - **Default `replicaCount` is now `2` in every environment.** Applies to the chart

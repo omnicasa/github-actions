@@ -312,6 +312,19 @@ deliberate cross-check — the two must agree, or the fetch fails closed.
   config carrying one of these names by accident cannot redirect a deploy to a different
   cluster. Doppler config-write is a much wider grant than GitHub production-environment
   write; this is why the two are never allowed to trade places.
+- **`githubOnly` keys fail the deploy if Doppler has them.** A top-level manifest list
+  of app keys that must come from the GitHub Environment (a var or a secret) and never
+  from any `secretSources` tier:
+
+  ```yaml
+  githubOnly:
+    - STRIPE_SECRET_KEY
+  ```
+
+  Checked in the same two places as platform keys, but it fails rather than drops,
+  whatever `onError` says — the fix is to delete the key from Doppler, and a warning on
+  a green run goes unread. The pin is only as protected as the manifest: `production`
+  and `prodtest` read it from `main`, while a `dev` deploy reads it from the PR branch.
 - **Fail closed.** The default `onError: fail` means a configured tier that cannot be
   fetched fails the deploy rather than silently falling back to a stale GitHub value,
   which would ship the wrong config and still look green. Set `onError: warn` only for a
