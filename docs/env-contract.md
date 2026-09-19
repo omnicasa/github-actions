@@ -306,25 +306,24 @@ deliberate cross-check — the two must agree, or the fetch fails closed.
 - **Doppler overrides GitHub, by name.** `render-values.py` builds `{**vars, **secrets,
   **doppler}` — the manifest's `env.variables`/`env.secrets` allowlist is what decides
   ConfigMap vs Secret either way, regardless of which tier supplied the value.
-- **Platform keys are never overridable.** `OVH_*`, `KUBECONFIG_BASE64` and
-  `IMAGE_PULL_SECRET_NAME` are denied in two places independently — once when
-  `actions/doppler-secrets` fetches, once when `render-values.py` merges — so a Doppler
-  config carrying one of these names by accident cannot redirect a deploy to a different
-  cluster. Doppler config-write is a much wider grant than GitHub production-environment
-  write; this is why the two are never allowed to trade places.
-- **`githubOnly` keys fail the deploy if Doppler has them.** A top-level manifest list
-  of app keys that must come from the GitHub Environment (a var or a secret) and never
-  from any `secretSources` tier:
+- **`githubOnly` keys fail the deploy if Doppler has them.** These must come from the
+  GitHub Environment (a var or a secret) and never from any `secretSources` tier. Always
+  included, whatever the manifest says: the ten platform keys (`OVH_*`,
+  `KUBECONFIG_BASE64`, `IMAGE_PULL_SECRET_NAME`), `APP_DOMAIN`, and the manifest's
+  `domainVar`. A Doppler config carrying one by accident could otherwise redirect a
+  deploy to another cluster or hostname, and Doppler config-write is a much wider grant
+  than GitHub production-environment write. A repo adds its own with a top-level list:
 
   ```yaml
   githubOnly:
     - STRIPE_SECRET_KEY
   ```
 
-  Checked in the same two places as platform keys, but it fails rather than drops,
-  whatever `onError` says — the fix is to delete the key from Doppler, and a warning on
-  a green run goes unread. The pin is only as protected as the manifest: `production`
-  and `prodtest` read it from `main`, while a `dev` deploy reads it from the PR branch.
+  Checked twice independently, once when `actions/doppler-secrets` fetches and once when
+  `render-values.py` merges. It fails rather than drops, whatever `onError` says: the fix
+  is to delete the key from Doppler, and a warning on a green run goes unread. The
+  manifest's own list is only as protected as the manifest: `production` and `prodtest`
+  read it from `main`, while a `dev` deploy reads it from the PR branch.
 - **Fail closed.** The default `onError: fail` means a configured tier that cannot be
   fetched fails the deploy rather than silently falling back to a stale GitHub value,
   which would ship the wrong config and still look green. Set `onError: warn` only for a

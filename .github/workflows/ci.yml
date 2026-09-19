@@ -172,13 +172,13 @@ jobs:
           PY
           rm -f /tmp/*-values.json
 
-      - name: Doppler overlay overrides by name, platform keys stay denied
+      - name: Doppler overlay overrides by name, unlisted keys ignored
         run: |
           set -euo pipefail
           # Same base context as the previous step, minus the canaries this one
           # doesn't need. AUTH_SECRET and SMTP_HOST are overridden by the Doppler
           # overlay; the rest proves everything not overridden still comes from
-          # GitHub, and that a platform key smuggled into the overlay never survives.
+          # GitHub. githubOnly keys (platform keys included) have their own step below.
           export VARS_JSON='{"OVH_REGISTRY":"reg.example","IMAGE_PULL_SECRET_NAME":"ovh-reg","APP_DOMAIN":"tools.example.com","NODE_ENV":"production","SMTP_HOST":"github-smtp.example","SMTP_PORT":"587","EMAIL_FROM":"noreply@example","AUTH_TRUST_HOST":"true","CUSTOMER_DB_CONNECT_TIMEOUT_MS":"45000"}'
           export SECRETS_JSON='{"AUTH_SECRET":"CANARY_GITHUB_AUTH","CRM_CUSTOMER_DATABASE_URL":"Server=h;Password=CANARY_CRM","OMNICASA_DATABASE_URL":"Server=h2;Password=CANARY_OMNI","CUSTOMER_DB_HOST_MAP":"{\"a\":\"1.2.3.4\"}","POSTMARK_API_KEY":"CANARY_PM"}'
           export ENVIRONMENT=production IMAGE_TAG=deadbeef
@@ -186,18 +186,17 @@ jobs:
           export RELEASE_VALUES_OUT=/tmp/release-values.json
           export APP_ENV_VALUES_OUT=/tmp/app-env-values.json
 
-          # KUBECONFIG_BASE64 is a platform key and must never reach either output
-          # file, however it got into the overlay. UNUSED_DOPPLER_KEY is not in the
-          # manifest allowlist and must be dropped like any GitHub-sourced key would be.
+          # UNUSED_DOPPLER_KEY is not in the manifest allowlist and must be dropped like
+          # any GitHub-sourced key would be.
           export DOPPLER_SECRETS_FILE=/tmp/doppler-secrets.json
           cat > "$DOPPLER_SECRETS_FILE" <<'JSON'
-          {"AUTH_SECRET":"CANARY_DOPPLER_AUTH","SMTP_HOST":"doppler-smtp.example","KUBECONFIG_BASE64":"CANARY_KUBECONFIG","UNUSED_DOPPLER_KEY":"CANARY_UNUSED"}
+          {"AUTH_SECRET":"CANARY_DOPPLER_AUTH","SMTP_HOST":"doppler-smtp.example","UNUSED_DOPPLER_KEY":"CANARY_UNUSED"}
           JSON
 
           python3 actions/render-values/render-values.py > /tmp/render-doppler.log 2>&1
           cat /tmp/render-doppler.log
 
-          if grep -qE 'CANARY_DOPPLER_AUTH|doppler-smtp.example|CANARY_KUBECONFIG|CANARY_UNUSED|CANARY_GITHUB_AUTH' /tmp/render-doppler.log; then
+          if grep -qE 'CANARY_DOPPLER_AUTH|doppler-smtp.example|CANARY_UNUSED|CANARY_GITHUB_AUTH' /tmp/render-doppler.log; then
             echo "::error::render-values.py printed a value it should only ever name"; exit 1
           fi
 
@@ -219,14 +218,8 @@ jobs:
 
           release = json.load(open("/tmp/release-values.json"))
           assert release["image"]["registry"] == "reg.example", "release values must ignore the overlay entirely"
-          print("Doppler overlay overrides by name; platform key and unlisted key both dropped")
+          print("Doppler overlay overrides by name; unlisted key dropped")
           PY
-
-          # The platform key must not have reached the cluster-facing file either,
-          # under any key name — belt and braces on top of the JSON-level assertions.
-          if grep -q 'CANARY_KUBECONFIG' /tmp/release-values.json /tmp/app-env-values.json; then
-            echo "::error::a platform-key value from the Doppler overlay reached a rendered file"; exit 1
-          fi
           rm -f /tmp/*-values.json /tmp/doppler-secrets.json
 
       - name: githubOnly key in the Doppler overlay fails the deploy
@@ -252,21 +245,25 @@ jobs:
           python3 -c 'import json; s=json.load(open("/tmp/app-env-values.json"))["config"]["env"]["secrets"]; assert s["POSTMARK_API_KEY"]=="CANARY_GITHUB_PM"'
           rm -f /tmp/*-values.json
 
-          # Overlay carrying the pinned key: hard failure, naming the key, not its value.
-          echo '{"AUTH_SECRET":"CANARY_DOPPLER_AUTH","POSTMARK_API_KEY":"CANARY_DOPPLER_PM"}' > "$DOPPLER_SECRETS_FILE"
-          if python3 actions/render-values/render-values.py > /tmp/render-pinned.log 2>&1; then
+          # Each githubOnly key in the overlay is a hard failure naming the key, never
+          # its value: the manifest's own list, the default APP_DOMAIN, a platform key.
+          for pair in POSTMARK_API_KEY:CANARY_DOPPLER_PM APP_DOMAIN:canary-doppler.example KUBECONFIG_BASE64:CANARY_DOPPLER_KUBE; do
+            key=${pair%%:*} value=${pair#*:}
+            printf '{"AUTH_SECRET":"CANARY_DOPPLER_AUTH","%s":"%s"}' "$key" "$value" > "$DOPPLER_SECRETS_FILE"
+            if python3 actions/render-values/render-values.py > /tmp/render-pinned.log 2>&1; then
+              cat /tmp/render-pinned.log
+              echo "::error::render-values accepted githubOnly key $key from Doppler"; exit 1
+            fi
             cat /tmp/render-pinned.log
-            echo "::error::render-values accepted a githubOnly key from Doppler"; exit 1
-          fi
-          cat /tmp/render-pinned.log
-          grep -q 'githubOnly key(s) POSTMARK_API_KEY' /tmp/render-pinned.log \
-            || { echo "::error::failure does not name the pinned key"; exit 1; }
-          if grep -qE 'CANARY_' /tmp/render-pinned.log; then
-            echo "::error::render-values printed a value it should only ever name"; exit 1
-          fi
-          if [ -e /tmp/app-env-values.json ]; then
-            echo "::error::render-values wrote values despite failing"; exit 1
-          fi
+            grep -q "githubOnly key(s) $key" /tmp/render-pinned.log \
+              || { echo "::error::failure does not name $key"; exit 1; }
+            if grep -qE 'CANARY_|canary-doppler' /tmp/render-pinned.log; then
+              echo "::error::render-values printed a value it should only ever name"; exit 1
+            fi
+            if [ -e /tmp/app-env-values.json ]; then
+              echo "::error::render-values wrote values despite failing"; exit 1
+            fi
+          done
           rm -f /tmp/*-values.json /tmp/doppler-secrets.json "$DEPLOY_MANIFEST"
 
       - name: Render build args with planted secrets, assert none appear
