@@ -41,7 +41,7 @@ every existing release's selector to `omnicasa-app` and `helm upgrade` would fai
 
 | Key | Default | Notes |
 |---|---|---|
-| `replicaCount` | `1` | Ignored when `autoscaling.enabled` |
+| `replicaCount` | `2` | Ignored when `autoscaling.enabled` |
 | `revisionHistoryLimit` | `5` | Old ReplicaSets kept |
 | `strategy` | RollingUpdate 25%/25% | |
 | `image.registry` / `.repository` / `.tag` | set by the workflow | tag is always the commit SHA |
