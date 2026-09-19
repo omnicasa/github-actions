@@ -40,6 +40,7 @@ KNOWN_TOP_LEVEL = {
     "buildArgs",
     "helmValues",
     "secretSources",
+    "githubOnly",
     # Top level, this pauses every environment at once — a one-line way to stop a
     # repo deploying during an incident without deleting the workflow. Per
     # environment it lives under environments.<env>.enabled.
@@ -147,6 +148,35 @@ def check_secret_sources(path: Path, data: dict) -> None:
 
     if doppler_count > 1:
         err(f"{path}: secretSources has {doppler_count} 'doppler' entries — only one is supported")
+
+
+def check_github_only(path: Path, data: dict) -> None:
+    names = data.get("githubOnly")
+    if names is None:
+        return
+    if not isinstance(names, list):
+        err(f"{path}: 'githubOnly' must be a list of env var names")
+        return
+    for name in names:
+        if not ENV_NAME.match(str(name)):
+            err(f"{path}: githubOnly contains an invalid env var name: {name!r}")
+
+    env = data.get("env") if isinstance(data.get("env"), dict) else {}
+    known = (
+        set(env.get("variables") or [])
+        | set(env.get("secrets") or [])
+        | set(data.get("required") or [])
+        | {str(data.get("domainVar") or "")}
+    )
+    derived = env.get("derived") if isinstance(env.get("derived"), dict) else {}
+    for template in derived.values():
+        known |= set(DERIVED_REF.findall(str(template)))
+    unknown = sorted(str(n) for n in names if n not in known)
+    if unknown:
+        warn(
+            f"{path}: githubOnly names {', '.join(unknown)}, which the manifest never "
+            "reads — typo? The pin guards nothing"
+        )
 
 
 def check(path: Path) -> None:
@@ -321,6 +351,7 @@ def check(path: Path) -> None:
         )
 
     check_secret_sources(path, data)
+    check_github_only(path, data)
 
     # The chart reads migration.* from deploy/values.yaml. A copy here is a second
     # switch that reads as authoritative and has no effect at all.

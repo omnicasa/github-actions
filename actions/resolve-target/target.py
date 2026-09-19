@@ -73,6 +73,10 @@ PLATFORM_KEYS = frozenset(
     }
 )
 
+# Always githubOnly, whatever the manifest says. The domain decides the public
+# hostname and TLS certificate, so it gets the same treatment as the platform keys.
+DEFAULT_GITHUB_ONLY = PLATFORM_KEYS | {"APP_DOMAIN"}
+
 # Environments whose image is promoted rather than built, as
 # {environment: prefix-to-read-from}. Absent means "the environment name is the
 # prefix", which is now the rule for everything.
@@ -134,6 +138,16 @@ def load_manifest(path: Path) -> dict:
     if not isinstance(data, dict):
         fail(f"{path} must contain a YAML mapping at the top level")
     return data
+
+
+def github_only_keys(manifest: dict) -> frozenset[str]:
+    """Keys no secretSources tier may supply: DEFAULT_GITHUB_ONLY, the manifest's
+    domainVar, and the manifest's own `githubOnly` list."""
+    raw = manifest.get("githubOnly") or []
+    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+        fail("manifest key 'githubOnly' must be a list of key names")
+    domain_var = str(manifest.get("domainVar") or "").strip()
+    return DEFAULT_GITHUB_ONLY | set(raw) | ({domain_var} if domain_var else set())
 
 
 def apply_environment_overrides(manifest: dict, environment: str) -> tuple[dict, set[str]]:

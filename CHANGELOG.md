@@ -8,8 +8,22 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 ## [Unreleased]
 
+### Added
+
+- **`githubOnly` manifest key: pin app keys to the GitHub Environment.** Names listed
+  there are never taken from a `secretSources` tier. If Doppler holds one, the deploy
+  fails (regardless of `onError`), naming the key so it can be deleted from Doppler.
+  `APP_DOMAIN` and the manifest's `domainVar` are always included. Enforced in both
+  `actions/doppler-secrets` and `render-values`; checked by `validate-manifest.py`. See
+  [env-contract.md](docs/env-contract.md#precedence-and-safety-rules-the-merge-enforces).
+
 ### Changed
 
+- **A platform key or `APP_DOMAIN` in a Doppler config now fails the deploy.** Platform
+  keys used to be dropped with a warning, and `APP_DOMAIN` from Doppler used to override
+  the ingress host. Before bumping, delete any `OVH_*`, `KUBECONFIG_BASE64`,
+  `IMAGE_PULL_SECRET_NAME`, `APP_DOMAIN` (or your `domainVar`) key from the app's
+  Doppler configs.
 - **Default `replicaCount` is now `2` in every environment.** Applies to the chart
   default and to `templates/values.yaml`. An app whose `deploy/values.yaml` (or
   `deploy/values.<env>.yaml`) still sets `replicaCount: 1` keeps one replica; drop

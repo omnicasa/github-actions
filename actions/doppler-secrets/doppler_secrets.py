@@ -21,7 +21,13 @@ from typing import NoReturn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "resolve-target"))
 
-from target import PLATFORM_KEYS, emit_output, fail, load_manifest, notice, warn  # noqa: E402
+from target import (  # noqa: E402
+    emit_output,
+    fail,
+    github_only_keys,
+    load_manifest,
+    notice,
+)
 
 DOPPLER_API = "https://api.doppler.com/v3"
 KNOWN_PROVIDERS = {"doppler"}
@@ -155,13 +161,15 @@ def main() -> None:
     # never an app value, so they only ever collide with an app key by accident.
     secrets = {k: v for k, v in secrets.items() if not k.startswith("DOPPLER_")}
 
-    denied = sorted(set(secrets) & PLATFORM_KEYS)
-    if denied:
-        warn(
-            "secretSources.doppler config carries platform key name(s), dropped: "
-            + ", ".join(denied)
+    # Covers the platform keys too (see DEFAULT_GITHUB_ONLY). Fails regardless of
+    # onError: a warning is easy to miss on a green run, and the fix is to delete the
+    # key from Doppler, not to deploy around it.
+    pinned = sorted(set(secrets) & github_only_keys(manifest))
+    if pinned:
+        fail(
+            f"Doppler {project}/{config} carries githubOnly key(s) {', '.join(pinned)} — "
+            "these must come from the GitHub Environment only; delete them from Doppler"
         )
-        secrets = {k: v for k, v in secrets.items() if k not in PLATFORM_KEYS}
 
     for value in secrets.values():
         if isinstance(value, str):

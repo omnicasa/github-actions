@@ -29,8 +29,9 @@ Keys absent from the manifest allowlist are ignored outright — including
 Tier 2, optional: DOPPLER_SECRETS_FILE points at a JSON file (name -> value) the
 actions/doppler-secrets action wrote. Present names there override `vars`/`secrets`
 by design. Passed as a file, never a step output or env var, so a masked value
-can't survive a missed mask elsewhere. Platform keys are denied here too, as a
-second check independent of the fetcher's own — see PLATFORM_KEYS in target.py.
+can't survive a missed mask elsewhere. A githubOnly key in it (platform keys,
+the domain, the manifest's own list) fails the deploy, as a second check
+independent of the fetcher's own — see github_only_keys in target.py.
 """
 
 from __future__ import annotations
@@ -46,7 +47,14 @@ from pathlib import Path
 # plain clone (which is how CI exercises this file).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "resolve-target"))
 
-from target import PLATFORM_KEYS, emit_output, fail, notice, resolve_from_env, warn  # noqa: E402
+from target import (  # noqa: E402
+    emit_output,
+    fail,
+    github_only_keys,
+    notice,
+    resolve_from_env,
+    warn,
+)
 
 RELEASE_OUT = Path(os.environ.get("RELEASE_VALUES_OUT", "/tmp/release-values.json"))
 APP_ENV_OUT = Path(os.environ.get("APP_ENV_VALUES_OUT", "/tmp/app-env-values.json"))
@@ -75,7 +83,7 @@ def load_context(var_name: str) -> dict:
     return {k: v for k, v in data.items() if isinstance(v, str) and v != ""}
 
 
-def load_doppler_overlay() -> dict[str, str]:
+def load_doppler_overlay(github_only: frozenset[str]) -> dict[str, str]:
     """Read tier 2's fetched secrets, if the caller ran actions/doppler-secrets.
 
     A blank env var means the tier was never configured for this environment — not
@@ -97,13 +105,15 @@ def load_doppler_overlay() -> dict[str, str]:
     if not isinstance(data, dict):
         fail(f"{path} decoded to {type(data).__name__}, expected an object")
 
-    # Second line of defense: actions/doppler-secrets already strips these before
-    # writing the file. Seeing this fire means that filter was bypassed somehow —
-    # worth a loud warning even though the key never reaches `everything` either way.
-    denied = sorted(set(data) & PLATFORM_KEYS)
-    if denied:
-        warn("tier 2 (Doppler) carried platform key name(s), dropped: " + ", ".join(denied))
-        data = {k: v for k, v in data.items() if k not in PLATFORM_KEYS}
+    # Second line of defense: actions/doppler-secrets already fails on these, so this
+    # firing means that check was bypassed. Checked on presence, before the
+    # empty-value filter: an empty key in Doppler still needs deleting there.
+    pinned = sorted(set(data) & github_only)
+    if pinned:
+        fail(
+            "tier 2 (Doppler) carries githubOnly key(s) " + ", ".join(pinned)
+            + " — these must come from the GitHub Environment only; delete them from Doppler"
+        )
 
     return {k: v for k, v in data.items() if isinstance(v, str) and v != ""}
 
@@ -176,7 +186,7 @@ def main() -> None:
 
     gh_vars = load_context("VARS_JSON")
     gh_secrets = load_context("SECRETS_JSON")
-    doppler = load_doppler_overlay()
+    doppler = load_doppler_overlay(github_only_keys(manifest))
 
     image_tag = os.environ.get("IMAGE_TAG", "").strip()
     if not image_tag:
