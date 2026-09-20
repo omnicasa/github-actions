@@ -32,6 +32,8 @@ permissions:
 jobs:
   guard:
     uses: omnicasa/github-actions/.github/workflows/branch-guard.yml@v1
-    # Defaults for both bases are the house convention: feat/, fix/, perf/, refactor/,
-    # chore/, ci/, hotfix/. Override only if this repo differs — for example one that
-    # promotes solely by PR from `staging`, which is `allowed-into-main: "staging"`.
+    # Defaults for both bases are the house convention — feat/, fix/, perf/, refactor/,
+    # chore/, ci/, hotfix/ — plus each long-lived branch into the other, so `staging` can
+    # be promoted into `main` wholesale and a hotfix on `main` can be resynced back.
+    # Override only to make the rule STRICTER: an override replaces the default outright,
+    # so a caller that sets `allowed-into-main` has to relist the kinds it still wants.

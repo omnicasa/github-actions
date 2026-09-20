@@ -6,6 +6,22 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [Unreleased]
+
+### Changed
+
+- **The branch guard now allows each long-lived branch into the other by default.**
+  `allowed-into-main` gains `staging` and `allowed-into-staging` gains `main`, so a
+  `staging` → `main` promotion PR and a `main` → `staging` hotfix resync both pass
+  without a caller override. Previously either failed with
+  `'staging' cannot target 'main'`, which silently stalled `omnicasa-webhook` a whole
+  flow behind for two weeks. Branch kinds are unchanged, and this only ever *widens*
+  what is accepted — no PR that passed before starts failing.
+
+  A repo that wants the old, stricter rule sets `allowed-into-main` explicitly. Note
+  that an override **replaces** the default rather than extending it, so it must relist
+  every kind it still wants.
+
 ## [v1.11.0] — 2026-09-19
 
 ### Added
