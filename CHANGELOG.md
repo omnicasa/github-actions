@@ -6,6 +6,17 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.12.1] — 2026-09-20
+
+No content change from v1.12.0 — the two tags have identical trees.
+
+v1.12.0 was tagged on the release branch commit rather than on the squash-merge
+commit that landed on `main`, so it was unreachable from any branch and
+`git describe` on a main commit could not find it. This re-tags the same content
+at `main`, and moves `v1` onto a commit that is actually in main's history.
+
+Nothing to do when bumping: a consumer already on v1.12.0 runs the same bytes.
+
 ## [v1.12.0] — 2026-09-20
 
 ### Changed
