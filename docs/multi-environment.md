@@ -202,13 +202,14 @@ runs nowhere.
 
 There is no template. Copy `caller-deploy-4env.yml` and delete the `dev` and `prodtest`
 jobs; the `build-only` job goes with them, since it exists solely to hand one artifact to
-staging and prodtest at once. Two things then have to change, and neither is optional:
+staging and prodtest at once. One thing then has to change, and it is not optional:
 
 - **Pin both environments**, because the default pins only production and this flow's
   staging *does* have a fixed branch: `environment-branches: production=main,staging=staging`.
-- **Let `staging` open a PR into `main`**, or every promotion PR fails the guard with
-  `'staging' cannot target 'main'`. In the branch-guard caller:
-  `allowed-into-main: "staging"`. PRs into `staging` keep the default prefixes.
+
+The branch guard needs nothing: `staging` into `main` and `main` into `staging` are both
+in the default allowlists since v1.12.0. A caller that overrides `allowed-into-main` drops
+them, because an override replaces the default rather than extending it.
 
 Set the staging Environment's deployment branches to `staging`, not All branches — the
 row in [Protection rules](#protection-rules-worth-setting) below assumes the PR-triggered
