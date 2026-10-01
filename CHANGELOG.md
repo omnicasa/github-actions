@@ -30,9 +30,12 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
   alert channels alongside failures. A failure anywhere still outranks a cancellation.
 
   **This lands for existing Teams consumers on bump**, not only for Slack. If anything
-  downstream keys off the old title strings, note they changed shape:
-  `⚠️/✅ <repo> — Production deploy failed|succeeded` is now generated from a verb, and
-  the `Failed at:` fact is now `Stopped at:`.
+  downstream keys off the old title strings, note they changed shape. The title is now
+  `<emoji> <repo> — Production deploy succeeded|failed|cancelled`, built from one verb,
+  with a single ⛔ for both bad outcomes rather than ⚠️ in the deploys channel and 🚨 in
+  the alerts channel for the same run. `Failed at:` is now `Stopped at:`, `App:` is now
+  `Namespace/App:`, and a fact whose value is empty — `Image tag:` on a run that failed
+  before the build — is dropped rather than printed as a bare label.
 
 ### Changed
 

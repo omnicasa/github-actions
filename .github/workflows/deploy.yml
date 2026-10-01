@@ -528,15 +528,14 @@ jobs:
             done
           done
           case "$outcome" in
-            success)   emoji='✅'; alert_emoji='';   verb=succeeded; alert=false ;;
-            failure)   emoji='⚠️'; alert_emoji='🚨'; verb=failed;    alert=true  ;;
-            cancelled) emoji='⛔'; alert_emoji='⛔'; verb=cancelled; alert=true  ;;
+            success)   emoji='✅'; verb=succeeded; alert=false ;;
+            failure)   emoji='⛔'; verb=failed;    alert=true  ;;
+            cancelled) emoji='⛔'; verb=cancelled; alert=true  ;;
           esac
           {
             echo "outcome=$outcome"
             echo "stage=$stage"
             echo "emoji=$emoji"
-            echo "alert-emoji=$alert_emoji"
             echo "verb=$verb"
             echo "alert=$alert"
           } >> "$GITHUB_OUTPUT"
@@ -566,7 +565,7 @@ jobs:
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}
           status: ${{ steps.ctx.outputs.outcome }}
-          title: ${{ format('{0} {1} — Production deploy {2}', steps.ctx.outputs.alert-emoji, github.repository, steps.ctx.outputs.verb) }}
+          title: ${{ format('{0} {1} — Production deploy {2}', steps.ctx.outputs.emoji, github.repository, steps.ctx.outputs.verb) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           facts: |
             Triggered by: ${{ github.actor }}
@@ -595,7 +594,7 @@ jobs:
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_DEPLOYMENTS_FAILED }}
           status: ${{ steps.ctx.outputs.outcome }}
-          title: ${{ format('{0} {1} — Production deploy {2}', steps.ctx.outputs.alert-emoji, github.repository, steps.ctx.outputs.verb) }}
+          title: ${{ format('{0} {1} — Production deploy {2}', steps.ctx.outputs.emoji, github.repository, steps.ctx.outputs.verb) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           facts: |
             Triggered by: ${{ github.actor }}

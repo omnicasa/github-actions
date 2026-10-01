@@ -314,7 +314,7 @@ notification reads its outputs:
 | Outcome | Title | Colour | Alert channels |
 |---|---|---|---|
 | success | ✅ … deploy succeeded | green | no |
-| failure | ⚠️ / 🚨 … deploy failed | red | yes |
+| failure | ⛔ … deploy failed | red | yes |
 | cancelled | ⛔ … deploy cancelled | amber | yes |
 
 A failure anywhere outranks a cancellation: cancelling a run that has already failed is

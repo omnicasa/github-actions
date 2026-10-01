@@ -129,14 +129,13 @@ jobs:
         run: |
           set -euo pipefail
           case "$RESULT" in
-            failure)   outcome=failure;   emoji='⚠️'; alert_emoji='🚨'; verb=failed;    alert=true  ;;
-            cancelled) outcome=cancelled; emoji='⛔'; alert_emoji='⛔'; verb=cancelled; alert=true  ;;
-            *)         outcome=success;   emoji='✅'; alert_emoji='';   verb=succeeded; alert=false ;;
+            failure)   outcome=failure;   emoji='⛔'; verb=failed;    alert=true  ;;
+            cancelled) outcome=cancelled; emoji='⛔'; verb=cancelled; alert=true  ;;
+            *)         outcome=success;   emoji='✅'; verb=succeeded; alert=false ;;
           esac
           {
             echo "outcome=$outcome"
             echo "emoji=$emoji"
-            echo "alert-emoji=$alert_emoji"
             echo "verb=$verb"
             echo "alert=$alert"
           } >> "$GITHUB_OUTPUT"
@@ -162,7 +161,7 @@ jobs:
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}
           status: ${{ steps.ctx.outputs.outcome }}
-          title: ${{ format('{0} {1} — Production rollback {2}', steps.ctx.outputs.alert-emoji, github.repository, steps.ctx.outputs.verb) }}
+          title: ${{ format('{0} {1} — Production rollback {2}', steps.ctx.outputs.emoji, github.repository, steps.ctx.outputs.verb) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           facts: |
             Triggered by: ${{ github.actor }}
@@ -187,7 +186,7 @@ jobs:
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_DEPLOYMENTS_FAILED }}
           status: ${{ steps.ctx.outputs.outcome }}
-          title: ${{ format('{0} {1} — Production rollback {2}', steps.ctx.outputs.alert-emoji, github.repository, steps.ctx.outputs.verb) }}
+          title: ${{ format('{0} {1} — Production rollback {2}', steps.ctx.outputs.emoji, github.repository, steps.ctx.outputs.verb) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           facts: |
             Triggered by: ${{ github.actor }}
