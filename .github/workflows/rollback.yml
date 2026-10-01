@@ -148,13 +148,13 @@ jobs:
           status: ${{ steps.ctx.outputs.outcome }}
           title: ${{ format('{0} {1} — Production rollback {2}', steps.ctx.outputs.emoji, github.repository, steps.ctx.outputs.verb) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Repository dropped: already in the title. Rollback line blank (dropped)
-          # unless it didn't succeed — the title's emoji already says so.
+          # Repository dropped: already in the title, and so is the outcome. A
+          # rollback that failed has no "revision after", so that line renders empty
+          # and the notify scripts drop it.
           facts: |
             Triggered by: ${{ github.actor }}
             Revision requested: ${{ inputs.revision || 'previous' }}
-            Revision after: ${{ needs.rollback.outputs.revision }}
-            ${{ needs.rollback.result != 'success' && format('Rollback: {0}', needs.rollback.result) || '' }}
+            ${{ needs.rollback.outputs.revision && format('Revision after: {0}', needs.rollback.outputs.revision) || '' }}
 
       - name: Notify Teams alerts channel
         if: steps.ctx.outputs.alert == 'true'
@@ -167,8 +167,7 @@ jobs:
           facts: |
             Triggered by: ${{ github.actor }}
             Revision requested: ${{ inputs.revision || 'previous' }}
-            Revision after: ${{ needs.rollback.outputs.revision }}
-            ${{ needs.rollback.result != 'success' && format('Rollback: {0}', needs.rollback.result) || '' }}
+            ${{ needs.rollback.outputs.revision && format('Revision after: {0}', needs.rollback.outputs.revision) || '' }}
 
       - name: Notify Slack deployments channel
         uses: omnicasa/github-actions/actions/slack-notify@feat/slack-notify
@@ -180,8 +179,7 @@ jobs:
           facts: |
             Triggered by: ${{ github.actor }}
             Revision requested: ${{ inputs.revision || 'previous' }}
-            Revision after: ${{ needs.rollback.outputs.revision }}
-            ${{ needs.rollback.result != 'success' && format('Rollback: {0}', needs.rollback.result) || '' }}
+            ${{ needs.rollback.outputs.revision && format('Revision after: {0}', needs.rollback.outputs.revision) || '' }}
 
       - name: Notify Slack failures channel
         if: steps.ctx.outputs.alert == 'true'
@@ -194,5 +192,4 @@ jobs:
           facts: |
             Triggered by: ${{ github.actor }}
             Revision requested: ${{ inputs.revision || 'previous' }}
-            Revision after: ${{ needs.rollback.outputs.revision }}
-            ${{ needs.rollback.result != 'success' && format('Rollback: {0}', needs.rollback.result) || '' }}
+            ${{ needs.rollback.outputs.revision && format('Revision after: {0}', needs.rollback.outputs.revision) || '' }}
