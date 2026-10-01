@@ -6,6 +6,50 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.13.0] — 2026-10-01
+
+### Added
+
+- **Production deploys and rollbacks now post to Slack as well as Teams.** New
+  `actions/slack-notify` sends a Block Kit message to a Slack incoming webhook, reading
+  `SLACK_WEBHOOK_DEPLOYMENTS_ALL` (every production run) and
+  `SLACK_WEBHOOK_DEPLOYMENTS_FAILED` (failures and cancellations). Its input contract is
+  identical to `actions/teams-notify`, and a blank webhook is still a no-op.
+
+  Nothing to do when bumping: a repo not on either org secret's access list sees no
+  change. Moving a repo from Teams to Slack is an access-list edit, not a code change —
+  the two transports are independent and either can be left unset.
+
+### Fixed
+
+- **A cancelled production run was reported as a success.** Both notify jobs classified
+  the run with `contains(needs.*.result, 'failure')`, which is false when a job's result
+  is `cancelled`. Cancelling a production deploy therefore posted
+  "✅ Production deploy succeeded" to the deploys channel and nothing at all to the
+  alerts channel. Cancellation is now its own outcome: ⛔, amber, and routed to the
+  alert channels alongside failures. A failure anywhere still outranks a cancellation.
+
+  **This lands for existing Teams consumers on bump**, not only for Slack. If anything
+  downstream keys off the old title strings, note they changed shape. The title is now
+  `<emoji> <repo> — Production deploy succeeded|failed|cancelled`, built from one verb,
+  with a single ⛔ for both bad outcomes rather than ⚠️ in the deploys channel and 🚨 in
+  the alerts channel for the same run. `Failed at:` is now `Stopped at:`, `App:` is now
+  `Namespace/App:`, and a fact whose value is empty — `Image tag:` on a run that failed
+  before the build — is dropped rather than printed as a bare label.
+
+- **A dead notification webhook suppressed every later one.** A step with a custom `if:`
+  keeps GitHub's implicit `success()`, and `curl -sSf` fails the step on any HTTP error,
+  so the notify steps were serially coupled. An expired Power Automate webhook on the
+  deploys channel therefore skipped the alerts channel too — on a failed production
+  deploy, on-call was told nothing. Present since v1.9.0. Each post now runs on
+  `always()`, guarded on the classifier having produced a result.
+
+### Changed
+
+- The four notification steps per workflow now read a single `Classify outcome` step's
+  outputs instead of each re-deriving the result inline. Same posts, one place to change
+  them. Both `notify` jobs are renamed `Notify (production)`.
+
 ## [v1.12.1] — 2026-09-20
 
 No content change from v1.12.0 — the two tags have identical trees.
