@@ -12,25 +12,27 @@ case "$STATUS" in
   *) color="#dbab09" ;;
 esac
 
-# "Key: Value" lines -> section fields. A line without a colon still gets a field
-# (empty value) rather than aborting the whole notification. Slack rejects a fields
-# array longer than 10 outright, so the tail is dropped rather than the message.
-fields_json="[]"
+# "Key: Value" lines -> one mrkdwn line each, in a single section. Slack's `fields`
+# would lay the same pairs out two-up, which reorders them across columns and wraps
+# badly on a phone; one line per fact keeps the given order. A line without a colon
+# still renders rather than aborting the whole notification. Section text is capped at
+# 3000 characters by Slack, so a runaway fact truncates instead of losing the message.
+facts_text=""
 if [ -n "${FACTS:-}" ]; then
-  fields_json=$(printf '%s\n' "$FACTS" | jq -Rn '
+  facts_text=$(printf '%s\n' "$FACTS" | jq -Rrn '
     def mrkdwn: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;");
     [ inputs
       | select(. != "")
       | capture("^(?<title>[^:]+):\\s*(?<value>.*)$")? // {title: ., value: ""}
-      | {type: "mrkdwn", text: "*\(.title|mrkdwn)*\n\(.value|mrkdwn)"}
-    ][:10]
+      | "*\(.title|mrkdwn):* \(.value|mrkdwn)"
+    ] | join("\n") | .[0:2900]
   ')
 fi
 
 body_json=$(jq -n \
   --arg title "$TITLE" \
   --arg color "$color" \
-  --argjson fields "$fields_json" \
+  --arg facts "$facts_text" \
   --arg runUrl "${RUN_URL:-}" \
   '
   def mrkdwn: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;");
@@ -45,7 +47,7 @@ body_json=$(jq -n \
         # Slack link syntax is <url|text>, not markdown. The headline carries the link,
         # which is why there is no separate "Open run" button.
         [{type: "section", text: {type: "mrkdwn", text: (if $runUrl != "" then "*<\($runUrl)|\($t)>*" else "*\($t)*" end)}}]
-        + (if ($fields | length) > 0 then [{type: "section", fields: $fields}] else [] end)
+        + (if $facts != "" then [{type: "section", text: {type: "mrkdwn", text: $facts}}] else [] end)
       )
     }]
   }')

@@ -67,7 +67,9 @@ jobs:
                   # A top-level .text would duplicate the headline above the card.
                   and (has("text") | not)
                   and (.attachments[0].blocks | length) == 2
-                  and (.attachments[0].blocks[1].fields | length) <= 10
+                  and (.attachments[0].blocks[1].text.text | length) <= 3000
+                  # One line per fact, in the order they were given.
+                  and (.attachments[0].blocks[1].text.text | split("\n") | length) == 3
                 ' > /dev/null
           done
           # Blank webhook must no-op rather than post or fail the job.
