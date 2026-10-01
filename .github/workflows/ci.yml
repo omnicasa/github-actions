@@ -62,9 +62,11 @@ jobs:
               FACTS=$'Triggered by: someone\nRef: main\nNoColonLine' \
               bash actions/slack-notify/notify.sh \
               | jq -e '
-                  (.text | length) > 0
+                  (.attachments[0].fallback | length) > 0
                   and (.attachments[0].color | startswith("#"))
-                  and (.attachments[0].blocks | length) == 3
+                  # A top-level .text would duplicate the headline above the card.
+                  and (has("text") | not)
+                  and (.attachments[0].blocks | length) == 2
                   and (.attachments[0].blocks[1].fields | length) <= 10
                 ' > /dev/null
           done

@@ -36,17 +36,16 @@ body_json=$(jq -n \
   def mrkdwn: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;");
   ($title | mrkdwn) as $t |
   {
-    # Block-only payloads preview as empty in the sidebar and in push notifications;
-    # this top-level text is what Slack shows there.
-    text: $title,
     attachments: [{
       color: $color,
+      # Notification and sidebar preview only — a top-level `text` would render the
+      # headline a second time above the card.
+      fallback: $title,
       blocks: (
-        # Slack link syntax is <url|text>, not markdown — the headline itself becomes
-        # the link when a run-url is given, as well as the button below.
+        # Slack link syntax is <url|text>, not markdown. The headline carries the link,
+        # which is why there is no separate "Open run" button.
         [{type: "section", text: {type: "mrkdwn", text: (if $runUrl != "" then "*<\($runUrl)|\($t)>*" else "*\($t)*" end)}}]
         + (if ($fields | length) > 0 then [{type: "section", fields: $fields}] else [] end)
-        + (if $runUrl != "" then [{type: "actions", elements: [{type: "button", text: {type: "plain_text", text: "Open run", emoji: true}, url: $runUrl}]}] else [] end)
       )
     }]
   }')
