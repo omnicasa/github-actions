@@ -53,8 +53,8 @@ jobs:
       - name: Slack payload is well-formed
         run: |
           set -euo pipefail
-          # A jq syntax or shape error in notify.sh is invisible to shellcheck and
-          # would otherwise only surface on a real production deploy.
+          # A jq error in notify.sh is invisible to shellcheck, and would otherwise
+          # surface on a real production deploy.
           for s in success failure cancelled; do
             NOTIFY_DRY_RUN=1 WEBHOOK_URL=https://example.invalid STATUS="$s" \
               TITLE="omnicasa/x — Production deploy $s" \
@@ -68,11 +68,9 @@ jobs:
                   and (has("text") | not)
                   and (.attachments[0].blocks | length) == 2
                   and (.attachments[0].blocks[1].text.text | length) <= 3000
-                  # One line per fact, in the order they were given.
                   and (.attachments[0].blocks[1].text.text | split("\n") | length) == 3
                 ' > /dev/null
           done
-          # Blank webhook must no-op rather than post or fail the job.
           out=$(WEBHOOK_URL="" STATUS=success TITLE=x bash actions/slack-notify/notify.sh)
           [ "$out" = "Slack webhook-url is blank, skipping notification" ]
 

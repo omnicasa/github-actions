@@ -12,11 +12,8 @@ case "$STATUS" in
   *) color="#dbab09" ;;
 esac
 
-# "Key: Value" lines -> one mrkdwn line each, in a single section. Slack's `fields`
-# would lay the same pairs out two-up, which reorders them across columns and wraps
-# badly on a phone; one line per fact keeps the given order. A line without a colon
-# still renders rather than aborting the whole notification. Section text is capped at
-# 3000 characters by Slack, so a runaway fact truncates instead of losing the message.
+# One line per fact, not Slack `fields`: those lay out two-up, reordering the facts
+# across columns. Truncated because Slack caps section text at 3000 characters.
 facts_text=""
 if [ -n "${FACTS:-}" ]; then
   facts_text=$(printf '%s\n' "$FACTS" | jq -Rrn '
@@ -40,19 +37,16 @@ body_json=$(jq -n \
   {
     attachments: [{
       color: $color,
-      # Notification and sidebar preview only — a top-level `text` would render the
-      # headline a second time above the card.
+      # Preview text. A top-level `text` renders the headline a second time above the card.
       fallback: $title,
       blocks: (
-        # Slack link syntax is <url|text>, not markdown. The headline carries the link,
-        # which is why there is no separate "Open run" button.
         [{type: "section", text: {type: "mrkdwn", text: (if $runUrl != "" then "*<\($runUrl)|\($t)>*" else "*\($t)*" end)}}]
         + (if $facts != "" then [{type: "section", text: {type: "mrkdwn", text: $facts}}] else [] end)
       )
     }]
   }')
 
-# Set only by CI, to assert the payload builds and is well-formed without a webhook.
+# Set by CI only, to assert the payload builds without a webhook.
 if [ "${NOTIFY_DRY_RUN:-}" = "1" ]; then
   printf '%s\n' "$body_json"
   exit 0

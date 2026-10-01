@@ -498,17 +498,15 @@ jobs:
   notify:
     name: Notify (production)
     needs: [resolve, test, build, deploy]
-    # always(): a failed or cancelled earlier job is the case most worth reporting,
-    # and it is also what makes this job survive a cancelled run. No `environment:`:
-    # the webhook secrets are org-level on purpose, so this never queues behind
-    # production's required-reviewer gate like the failed deploy did.
+    # always() is what makes this job survive a cancelled run. No `environment:`: the
+    # webhook secrets are org-level on purpose, so this never queues behind production's
+    # required-reviewer gate like the failed deploy it is reporting did.
     if: always() && (inputs.environment || github.ref_name) == 'production'
     runs-on: ${{ inputs.runs-on }}
     steps:
       # One classification for all four posts. success()/failure()/cancelled() are
-      # illegal inside `with:` (v1.9.0 broke every caller that way), and the inline
-      # contains() that replaced them reads 'cancelled' as a success — a cancelled
-      # production deploy was announced as ✅ and never reached the alert channels.
+      # illegal inside `with:` (v1.9.0 broke every caller that way), and the contains()
+      # that replaced them read 'cancelled' as a success.
       - name: Classify outcome
         id: ctx
         # `runs-on` is caller-settable, so do not rely on the runner's default shell.
@@ -517,9 +515,8 @@ jobs:
           RESULTS: resolve:${{ needs.resolve.result }} test:${{ needs.test.result }} build:${{ needs.build.result }} deploy:${{ needs.deploy.result }}
         run: |
           set -euo pipefail
-          # Two passes, not one: a failure anywhere outranks a cancellation, because
-          # cancelling a run that has already failed is still a failed deploy.
-          # `skipped` is not an outcome — it is what every job after the bad one gets.
+          # Two passes: a failure anywhere outranks a cancellation, because cancelling
+          # a run that has already failed is still a failed deploy.
           outcome=success; stage=""
           for pass in failure cancelled; do
             # shellcheck disable=SC2086  # word splitting is the point
@@ -547,9 +544,8 @@ jobs:
           status: ${{ steps.ctx.outputs.outcome }}
           title: ${{ format('{0} {1} — Production deploy {2}', steps.ctx.outputs.emoji, github.repository, steps.ctx.outputs.verb) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Repository dropped: already in the title. A line that renders empty is
-          # dropped by the notify scripts, which is what keeps "Image tag" out of a
-          # run that failed before the build and "Stopped at" out of a clean one.
+          # The notify scripts drop a line that renders empty, which is how a run that
+          # failed before the build gets no "Image tag".
           facts: |
             Triggered by: ${{ github.actor }}
             Ref: ${{ github.ref_name }}
@@ -557,8 +553,7 @@ jobs:
             ${{ needs.resolve.outputs.app && format('Namespace/App: {0}/{1}', needs.resolve.outputs.namespace, needs.resolve.outputs.app) || '' }}
             ${{ steps.ctx.outputs.stage && format('Stopped at: {0}', steps.ctx.outputs.stage) || '' }}
 
-      # Failures and cancellations only, for on-call — without the noise of every
-      # success too.
+      # On-call, without the noise of every success too.
       - name: Notify Teams alerts channel
         if: steps.ctx.outputs.alert == 'true'
         uses: omnicasa/github-actions/actions/teams-notify@v1

@@ -115,9 +115,8 @@ jobs:
   notify:
     name: Notify (production)
     needs: rollback
-    # Same shape as deploy.yml's notify job (see there for why no `environment:`,
-    # and why the outcome is classified in a step rather than inline).
-    # An incident already in progress must not wait on an approval it never got.
+    # Same shape as deploy.yml's notify job; see there for why no `environment:`. An
+    # incident already in progress must not wait on an approval it never got.
     if: always() && inputs.environment == 'production'
     runs-on: ${{ inputs.runs-on }}
     steps:
@@ -147,9 +146,8 @@ jobs:
           status: ${{ steps.ctx.outputs.outcome }}
           title: ${{ format('{0} {1} — Production rollback {2}', steps.ctx.outputs.emoji, github.repository, steps.ctx.outputs.verb) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Repository dropped: already in the title, and so is the outcome. A
-          # rollback that failed has no "revision after", so that line renders empty
-          # and the notify scripts drop it.
+          # A failed rollback has no "revision after"; the notify scripts drop the
+          # line it renders empty.
           facts: |
             Triggered by: ${{ github.actor }}
             Revision requested: ${{ inputs.revision || 'previous' }}

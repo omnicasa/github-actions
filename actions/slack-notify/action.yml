@@ -3,10 +3,9 @@ description: >-
   Post a Block Kit message to a Slack incoming webhook. No-ops if webhook-url is
   blank, so a repo without the org secret granted just skips.
 
-# Input contract is deliberately identical to actions/teams-notify, so the two call
-# sites in a notify job stay reviewable side by side. Composite actions cannot read
-# the `secrets` context, so the webhook URL arrives as an input; a value passed via
-# `with:` from `${{ secrets.* }}` stays masked in the log.
+# Input contract mirrors actions/teams-notify, so the two call sites in a notify job
+# stay reviewable side by side. Composite actions cannot read the `secrets` context,
+# hence webhook-url as an input.
 
 inputs:
   webhook-url:
