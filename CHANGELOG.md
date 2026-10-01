@@ -37,6 +37,13 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
   `Namespace/App:`, and a fact whose value is empty — `Image tag:` on a run that failed
   before the build — is dropped rather than printed as a bare label.
 
+- **A dead notification webhook suppressed every later one.** A step with a custom `if:`
+  keeps GitHub's implicit `success()`, and `curl -sSf` fails the step on any HTTP error,
+  so the notify steps were serially coupled. An expired Power Automate webhook on the
+  deploys channel therefore skipped the alerts channel too — on a failed production
+  deploy, on-call was told nothing. Present since v1.9.0. Each post now runs on
+  `always()`, guarded on the classifier having produced a result.
+
 ### Changed
 
 - The four notification steps per workflow now read a single `Classify outcome` step's
