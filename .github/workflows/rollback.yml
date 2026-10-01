@@ -139,7 +139,12 @@ jobs:
             echo "alert=$alert"
           } >> "$GITHUB_OUTPUT"
 
+      # Each post is guarded with always() so one dead webhook cannot skip the rest:
+      # curl -sSf fails the step on an HTTP error, and the implicit success() would
+      # then drop every later channel — including the on-call one. The outcome check
+      # is what still skips them all if the classifier itself failed.
       - name: Notify Teams deploys channel
+        if: always() && steps.ctx.outputs.outcome != ''
         uses: omnicasa/github-actions/actions/teams-notify@v1
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS }}
@@ -154,7 +159,7 @@ jobs:
             ${{ needs.rollback.outputs.revision && format('Revision after: {0}', needs.rollback.outputs.revision) || '' }}
 
       - name: Notify Teams alerts channel
-        if: steps.ctx.outputs.alert == 'true'
+        if: always() && steps.ctx.outputs.alert == 'true'
         uses: omnicasa/github-actions/actions/teams-notify@v1
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}
@@ -167,6 +172,7 @@ jobs:
             ${{ needs.rollback.outputs.revision && format('Revision after: {0}', needs.rollback.outputs.revision) || '' }}
 
       - name: Notify Slack deployments channel
+        if: always() && steps.ctx.outputs.outcome != ''
         uses: omnicasa/github-actions/actions/slack-notify@v1
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_DEPLOYMENTS_ALL }}
@@ -179,7 +185,7 @@ jobs:
             ${{ needs.rollback.outputs.revision && format('Revision after: {0}', needs.rollback.outputs.revision) || '' }}
 
       - name: Notify Slack failures channel
-        if: steps.ctx.outputs.alert == 'true'
+        if: always() && steps.ctx.outputs.alert == 'true'
         uses: omnicasa/github-actions/actions/slack-notify@v1
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_DEPLOYMENTS_FAILED }}
