@@ -288,25 +288,51 @@ Consequences:
   dev and staging carry one registry's values, prodtest and production the other.
   Within a registry, environments are still separated only by the path prefix.
 
-## Production alerts to MS Teams
+## Production alerts to Teams and Slack
 
 `deploy.yml` and `rollback.yml` each end with a `notify` job, scoped to `production`
-only — dev/staging/prodtest churn too often to page anyone on. It posts to two
-Teams channels via `actions/teams-notify`:
+only — dev/staging/prodtest churn too often to page anyone on. It posts the same
+outcome to both transports, via `actions/teams-notify` and `actions/slack-notify`:
 
-- **deploys channel** — every production deploy or rollback, success or failure.
-- **alerts channel** — failures only, for whoever is on call.
+| Channel | Secret | Gets |
+|---|---|---|
+| Teams deploys | `MSTEAMS_WEBHOOK_URL_DEPLOYS` | every run |
+| Teams alerts | `MSTEAMS_WEBHOOK_URL_ALERTS` | failures and cancellations |
+| Slack deployments | `SLACK_WEBHOOK_DEPLOYMENTS_ALL` | every run |
+| Slack failures | `SLACK_WEBHOOK_DEPLOYMENTS_FAILED` | failures and cancellations |
 
-Both webhook URLs are read from `secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS` and
-`secrets.MSTEAMS_WEBHOOK_URL_ALERTS`. Create each as an **organization** secret with
-a repo access list — see [env-contract.md](env-contract.md#ms-teams-notification-secrets)
-for why environment scope would break it. A repo with no access to either just gets
-a blank webhook-url and the notify step no-ops; nothing needs disabling per repo.
+Create each as an **organization** secret with a repo access list — see
+[env-contract.md](env-contract.md#notification-secrets) for why environment scope would
+break it. A repo with no access just gets a blank webhook-url and that step no-ops;
+nothing needs disabling per repo, and a repo can be on Teams, Slack, both or neither.
 
-The webhook itself is a Power Automate "Workflows" incoming webhook, not the legacy
-Office 365 Connector — Microsoft retired the latter, and it silently drops the
-Adaptive Card payload `teams-notify` sends. In Teams: channel **···** → Workflows →
-"Post to a channel when a webhook request is received" → copy the URL it gives you.
+### Three outcomes, not two
+
+A single `Classify outcome` step decides which of three the run was, and every
+notification reads its outputs:
+
+| Outcome | Title | Colour | Alert channels |
+|---|---|---|---|
+| success | ✅ … deploy succeeded | green | no |
+| failure | ⚠️ / 🚨 … deploy failed | red | yes |
+| cancelled | ⛔ … deploy cancelled | amber | yes |
+
+A failure anywhere outranks a cancellation: cancelling a run that has already failed is
+still a failed deploy. Before v1.13.0 the job classified with
+`contains(needs.*.result, 'failure')`, which reads `cancelled` as a success — a cancelled
+production deploy was announced as ✅ and on-call was never told.
+
+### Minting the webhooks
+
+**Teams** — a Power Automate "Workflows" incoming webhook, not the legacy Office 365
+Connector. Microsoft retired the latter, and it silently drops the Adaptive Card payload
+`teams-notify` sends. In Teams: channel **···** → Workflows → "Post to a channel when a
+webhook request is received" → copy the URL it gives you.
+
+**Slack** — a classic incoming webhook bound to one channel: Slack app → Incoming
+Webhooks → Add New Webhook to Workspace → pick the channel → copy the
+`https://hooks.slack.com/services/…` URL. The channel is fixed by the URL, so
+`slack-notify` sends no `channel` field.
 
 ## Environments that deviate
 

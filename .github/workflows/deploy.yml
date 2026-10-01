@@ -496,44 +496,109 @@ jobs:
           fail-on-error: "false"
 
   notify:
-    name: Notify Teams (production)
+    name: Notify (production)
     needs: [resolve, test, build, deploy]
-    # always(): a failed earlier job is the case most worth reporting. No
-    # `environment:`: MSTEAMS_* are org-level secrets on purpose, so this never
-    # queues behind production's required-reviewer gate like the failed deploy did.
+    # always(): a failed or cancelled earlier job is the case most worth reporting,
+    # and it is also what makes this job survive a cancelled run. No `environment:`:
+    # the webhook secrets are org-level on purpose, so this never queues behind
+    # production's required-reviewer gate like the failed deploy did.
     if: always() && (inputs.environment || github.ref_name) == 'production'
     runs-on: ${{ inputs.runs-on }}
     steps:
-      - name: Notify deploys channel
+      # One classification for all four posts. success()/failure()/cancelled() are
+      # illegal inside `with:` (v1.9.0 broke every caller that way), and the inline
+      # contains() that replaced them reads 'cancelled' as a success — a cancelled
+      # production deploy was announced as ✅ and never reached the alert channels.
+      - name: Classify outcome
+        id: ctx
+        # `runs-on` is caller-settable, so do not rely on the runner's default shell.
+        shell: bash
+        env:
+          RESULTS: resolve:${{ needs.resolve.result }} test:${{ needs.test.result }} build:${{ needs.build.result }} deploy:${{ needs.deploy.result }}
+        run: |
+          set -euo pipefail
+          # Two passes, not one: a failure anywhere outranks a cancellation, because
+          # cancelling a run that has already failed is still a failed deploy.
+          # `skipped` is not an outcome — it is what every job after the bad one gets.
+          outcome=success; stage=""
+          for pass in failure cancelled; do
+            # shellcheck disable=SC2086  # word splitting is the point
+            for entry in $RESULTS; do
+              if [ "${entry#*:}" = "$pass" ]; then outcome="$pass"; stage="${entry%%:*}"; break 2; fi
+            done
+          done
+          case "$outcome" in
+            success)   emoji='✅'; alert_emoji='';   verb=succeeded; alert=false ;;
+            failure)   emoji='⚠️'; alert_emoji='🚨'; verb=failed;    alert=true  ;;
+            cancelled) emoji='⛔'; alert_emoji='⛔'; verb=cancelled; alert=true  ;;
+          esac
+          {
+            echo "outcome=$outcome"
+            echo "stage=$stage"
+            echo "emoji=$emoji"
+            echo "alert-emoji=$alert_emoji"
+            echo "verb=$verb"
+            echo "alert=$alert"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Notify Teams deploys channel
         uses: omnicasa/github-actions/actions/teams-notify@v1
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS }}
-          # success()/failure() only work at the top of an if:, not inside with:;
-          # contains() is a plain function and works in both places.
-          status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
-          title: ${{ contains(needs.*.result, 'failure') && format('⚠️ {0} — Production deploy failed', github.repository) || format('✅ {0} — Production deploy succeeded', github.repository) }}
+          status: ${{ steps.ctx.outputs.outcome }}
+          title: ${{ format('{0} {1} — Production deploy {2}', steps.ctx.outputs.emoji, github.repository, steps.ctx.outputs.verb) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Repository dropped: already in the title. "Failed at" is blank (and
-          # dropped) unless a job actually failed.
+          # Repository dropped: already in the title. "Stopped at" is blank (and
+          # dropped) unless a job actually failed or was cancelled.
           facts: |
             Triggered by: ${{ github.actor }}
             Ref: ${{ github.ref_name }}
             Image tag: ${{ needs.build.outputs.image-tag }}
             App: ${{ needs.resolve.outputs.namespace }} / ${{ needs.resolve.outputs.app }}
-            ${{ contains(needs.*.result, 'failure') && format('Failed at: {0}', needs.resolve.result == 'failure' && 'resolve' || (needs.test.result == 'failure' && 'test' || (needs.build.result == 'failure' && 'build' || 'deploy'))) || '' }}
+            ${{ steps.ctx.outputs.stage && format('Stopped at: {0}', steps.ctx.outputs.stage) || '' }}
 
-      # Failures only, for on-call — without the noise of every success too.
-      - name: Notify alerts channel
-        if: contains(needs.*.result, 'failure')
+      # Failures and cancellations only, for on-call — without the noise of every
+      # success too.
+      - name: Notify Teams alerts channel
+        if: steps.ctx.outputs.alert == 'true'
         uses: omnicasa/github-actions/actions/teams-notify@v1
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}
-          status: failure
-          title: ${{ format('🚨 {0} — Production deploy failed', github.repository) }}
+          status: ${{ steps.ctx.outputs.outcome }}
+          title: ${{ format('{0} {1} — Production deploy {2}', steps.ctx.outputs.alert-emoji, github.repository, steps.ctx.outputs.verb) }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           facts: |
             Triggered by: ${{ github.actor }}
             Ref: ${{ github.ref_name }}
             Image tag: ${{ needs.build.outputs.image-tag }}
             App: ${{ needs.resolve.outputs.namespace }} / ${{ needs.resolve.outputs.app }}
-            ${{ contains(needs.*.result, 'failure') && format('Failed at: {0}', needs.resolve.result == 'failure' && 'resolve' || (needs.test.result == 'failure' && 'test' || (needs.build.result == 'failure' && 'build' || 'deploy'))) || '' }}
+            ${{ steps.ctx.outputs.stage && format('Stopped at: {0}', steps.ctx.outputs.stage) || '' }}
+
+      - name: Notify Slack deployments channel
+        uses: omnicasa/github-actions/actions/slack-notify@v1
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_DEPLOYMENTS_ALL }}
+          status: ${{ steps.ctx.outputs.outcome }}
+          title: ${{ format('{0} {1} — Production deploy {2}', steps.ctx.outputs.emoji, github.repository, steps.ctx.outputs.verb) }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          facts: |
+            Triggered by: ${{ github.actor }}
+            Ref: ${{ github.ref_name }}
+            Image tag: ${{ needs.build.outputs.image-tag }}
+            App: ${{ needs.resolve.outputs.namespace }} / ${{ needs.resolve.outputs.app }}
+            ${{ steps.ctx.outputs.stage && format('Stopped at: {0}', steps.ctx.outputs.stage) || '' }}
+
+      - name: Notify Slack failures channel
+        if: steps.ctx.outputs.alert == 'true'
+        uses: omnicasa/github-actions/actions/slack-notify@v1
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_DEPLOYMENTS_FAILED }}
+          status: ${{ steps.ctx.outputs.outcome }}
+          title: ${{ format('{0} {1} — Production deploy {2}', steps.ctx.outputs.alert-emoji, github.repository, steps.ctx.outputs.verb) }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          facts: |
+            Triggered by: ${{ github.actor }}
+            Ref: ${{ github.ref_name }}
+            Image tag: ${{ needs.build.outputs.image-tag }}
+            App: ${{ needs.resolve.outputs.namespace }} / ${{ needs.resolve.outputs.app }}
+            ${{ steps.ctx.outputs.stage && format('Stopped at: {0}', steps.ctx.outputs.stage) || '' }}

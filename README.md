@@ -85,6 +85,8 @@ request deploys staging and the merge deploys production.
 | `actions/helm-deploy` | Ensure-ns, unstick, diff, `helm upgrade --atomic`, rollout status — **and carries the chart** |
 | `actions/helm-rollback` | `helm history` then `helm rollback` |
 | `actions/k8s-diagnostics` | Failure evidence dump; `--atomic` destroys it otherwise |
+| `actions/teams-notify` | Posts an Adaptive Card to an MS Teams webhook; no-ops on a blank URL |
+| `actions/slack-notify` | Posts a Block Kit message to a Slack webhook; no-ops on a blank URL |
 | `templates/` | Copy-paste starting points for app repos |
 | `scripts/` | `check-workflow.sh`, `validate-manifest.py` — run these before opening a PR |
 | `docs/` | Onboarding, the env-key contract, every chart value, the rollback runbook |

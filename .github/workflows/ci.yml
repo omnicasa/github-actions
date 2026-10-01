@@ -50,6 +50,28 @@ jobs:
           # shellcheck disable=SC2086
           ruff check $files
 
+      - name: Slack payload is well-formed
+        run: |
+          set -euo pipefail
+          # A jq syntax or shape error in notify.sh is invisible to shellcheck and
+          # would otherwise only surface on a real production deploy.
+          for s in success failure cancelled; do
+            NOTIFY_DRY_RUN=1 WEBHOOK_URL=https://example.invalid STATUS="$s" \
+              TITLE="omnicasa/x — Production deploy $s" \
+              RUN_URL=https://example.invalid/run \
+              FACTS=$'Triggered by: someone\nRef: main\nNoColonLine' \
+              bash actions/slack-notify/notify.sh \
+              | jq -e '
+                  (.text | length) > 0
+                  and (.attachments[0].color | startswith("#"))
+                  and (.attachments[0].blocks | length) == 3
+                  and (.attachments[0].blocks[1].fields | length) <= 10
+                ' > /dev/null
+          done
+          # Blank webhook must no-op rather than post or fail the job.
+          out=$(WEBHOOK_URL="" STATUS=success TITLE=x bash actions/slack-notify/notify.sh)
+          [ "$out" = "Slack webhook-url is blank, skipping notification" ]
+
       - name: Internal action refs all agree
         run: |
           set -euo pipefail

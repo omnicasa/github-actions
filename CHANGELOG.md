@@ -6,6 +6,40 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.13.0] — 2026-10-01
+
+### Added
+
+- **Production deploys and rollbacks now post to Slack as well as Teams.** New
+  `actions/slack-notify` sends a Block Kit message to a Slack incoming webhook, reading
+  `SLACK_WEBHOOK_DEPLOYMENTS_ALL` (every production run) and
+  `SLACK_WEBHOOK_DEPLOYMENTS_FAILED` (failures and cancellations). Its input contract is
+  identical to `actions/teams-notify`, and a blank webhook is still a no-op.
+
+  Nothing to do when bumping: a repo not on either org secret's access list sees no
+  change. Moving a repo from Teams to Slack is an access-list edit, not a code change —
+  the two transports are independent and either can be left unset.
+
+### Fixed
+
+- **A cancelled production run was reported as a success.** Both notify jobs classified
+  the run with `contains(needs.*.result, 'failure')`, which is false when a job's result
+  is `cancelled`. Cancelling a production deploy therefore posted
+  "✅ Production deploy succeeded" to the deploys channel and nothing at all to the
+  alerts channel. Cancellation is now its own outcome: ⛔, amber, and routed to the
+  alert channels alongside failures. A failure anywhere still outranks a cancellation.
+
+  **This lands for existing Teams consumers on bump**, not only for Slack. If anything
+  downstream keys off the old title strings, note they changed shape:
+  `⚠️/✅ <repo> — Production deploy failed|succeeded` is now generated from a verb, and
+  the `Failed at:` fact is now `Stopped at:`.
+
+### Changed
+
+- The four notification steps per workflow now read a single `Classify outcome` step's
+  outputs instead of each re-deriving the result inline. Same posts, one place to change
+  them. Both `notify` jobs are renamed `Notify (production)`.
+
 ## [v1.12.1] — 2026-09-20
 
 No content change from v1.12.0 — the two tags have identical trees.
