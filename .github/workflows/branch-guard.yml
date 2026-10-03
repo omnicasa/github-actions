@@ -67,7 +67,7 @@ on:
       runs-on:
         type: string
         required: false
-        default: ubuntu-latest
+        default: ubuntu-26.04
     outputs:
       kind:
         description: Branch kind of the PR head — feat, fix, perf, refactor, chore, ci, hotfix.

@@ -55,10 +55,13 @@ on:
         required: false
         default: deploy/values.yaml
       runs-on:
-        description: Runner label. Must be static — it is resolved before any step runs.
+        description: >-
+          Runner label. Must be static — it is resolved before any step runs. Pinned to
+          a version, not ubuntu-latest: GitHub migrates that label over weeks, so during
+          the window runs land on two different images and a failure is not reproducible.
         type: string
         required: false
-        default: ubuntu-latest
+        default: ubuntu-26.04
       image-tag:
         description: Deploy an already-built tag instead of building. Blank means github.sha.
         type: string

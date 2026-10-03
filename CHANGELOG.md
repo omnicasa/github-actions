@@ -6,6 +6,32 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.14.0] — 2026-10-03
+
+### Changed
+
+- **Runners are pinned to `ubuntu-26.04`** — the `runs-on` input default in `deploy.yml`,
+  `rollback.yml` and `branch-guard.yml`, and the hardcoded label in this repo's own
+  `ci.yml` and `release.yml`.
+
+  `ubuntu-latest` becomes 26.04 between 2026-10-19 and 2026-11-19, rolled out gradually.
+  The end state is not the problem; the window is. Two runs of the same commit can land
+  on different images, and because consumers track the floating `v1` tag, a production
+  deploy would pick that up with no PR to review. A version label makes the move one
+  reviewed change instead.
+
+  A caller that needs the old image can still pass `runs-on: ubuntu-24.04`.
+
+- **`actions/setup-cluster` now fails if `helm` on PATH is not v3.** The 26.04 image
+  preinstalls Helm 4 at `/usr/local/bin/helm`. `setup-helm` prepends its pinned v3.19.0,
+  so the pin wins — but a PATH-order regression would otherwise be invisible: Helm 4
+  applies server-side and dropped `--atomic`, so deploys stay green while silently
+  losing automatic rollback. The `Verify toolchain` step asserts the major instead of
+  only printing it.
+
+  kubectl is unaffected in substance — 26.04 preinstalls 1.37.1, the action pins 1.31.0,
+  and only the pinned client is ever on PATH.
+
 ## [v1.13.1] — 2026-10-03
 
 ### Changed

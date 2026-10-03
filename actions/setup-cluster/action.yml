@@ -81,6 +81,16 @@ runs:
         set -euo pipefail
         helm version --short
         kubectl version --client
+
+        # ubuntu-26.04 preinstalls Helm 4 at /usr/local/bin/helm. setup-helm prepends
+        # its pinned copy, so v3 wins today — but if that order ever flips, every
+        # deploy quietly switches to server-side apply with no --atomic, i.e. green
+        # runs and no automatic rollback. Assert rather than trust.
+        installed="$(helm version --short)"
+        case "$installed" in
+          v3.*) ;;
+          *) echo "::error::helm on PATH is $installed, expected the pinned ${{ inputs.helm-version }}"; exit 1 ;;
+        esac
         # Deliberately no connectivity check here: the runner's IP is not on the OVH
         # allowlist until the ovh-ip-allowlist step runs, which is after this one.
         # helm-deploy's preflight makes the first API call.
