@@ -54,20 +54,6 @@ jobs:
           grep -q "${{ steps.version.outputs.tag }}" CHANGELOG.md \
             || { echo "::error::CHANGELOG.md has no entry for ${{ steps.version.outputs.tag }}"; exit 1; }
 
-      - name: Move the floating major tag
-        run: |
-          set -euo pipefail
-          major="${{ steps.version.outputs.major }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Name the target commit explicitly rather than relying on HEAD. Belt and
-          # braces with the `ref:` above: whatever is checked out, v1 lands on the
-          # commit the requested tag names.
-          target=$(git rev-list -n1 "${{ steps.version.outputs.tag }}")
-          git tag -f -a "$major" -m "Track ${{ steps.version.outputs.tag }}" "$target"
-          git push -f origin "$major"
-          echo "::notice::$major now points at ${{ steps.version.outputs.tag }} ($target)"
-
       - name: Publish release notes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,3 +63,36 @@ jobs:
             --title "${{ steps.version.outputs.tag }}" \
             --generate-notes \
             || gh release edit "${{ steps.version.outputs.tag }}" --title "${{ steps.version.outputs.tag }}"
+
+      # GITHUB_TOKEN may not point a ref at a tree containing .github/workflows changes —
+      # `workflows` is not a permissions: key, and the refs API is refused too (403 on
+      # run 37140676761). Restoring automation means a PAT or App key that can rewrite CI.
+      - name: Hand over the v1 move
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          MAJOR: ${{ steps.version.outputs.major }}
+        run: |
+          set -euo pipefail
+          target=$(git rev-list -n1 "$TAG")
+          current=$(git rev-list -n1 "$MAJOR" 2>/dev/null || echo none)
+
+          if [ "$current" = "$target" ]; then
+            echo "::notice::$MAJOR already points at $TAG ($target)"
+            exit 0
+          fi
+
+          # Warning, not error: the tag and the notes are real, only the push is outstanding.
+          echo "::warning::$MAJOR still points at $current — move it with the command in the job summary"
+
+          # echo, not a heredoc: a heredoc body carries this block's YAML indentation into
+          # the summary, and leading spaces break the fences.
+          {
+            echo "### $MAJOR is not on $TAG yet"
+            echo
+            echo "Consumers tracking \`$MAJOR\` keep running \`$current\` until someone"
+            echo "with their own credentials runs:"
+            echo
+            echo '```'
+            echo "bash scripts/move-major.sh $TAG"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

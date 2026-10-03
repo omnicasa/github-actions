@@ -6,6 +6,46 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.14.1] — 2026-10-03
+
+### Changed
+
+- **`release.yml` no longer moves `v1`, and no longer fails trying.** It still refuses a
+  tag that is not `vX.Y.Z` or absent from this file, still publishes the release notes,
+  and now ends by pointing at the new `scripts/move-major.sh vX.Y.Z` — as a warning with
+  a job summary, not a red run.
+
+  The script is the one manual step in a release. It refuses a tag that is not reachable
+  from `origin/main` (v1.12.0's failure) or that is older than the current `v1` (which
+  would roll every consumer back — nothing in `release.yml` ever compared versions), and
+  it confirms before pushing unless given `-y`.
+
+  Why it cannot do it itself: GITHUB_TOKEN is a GitHub App token, and GitHub refuses to
+  point a ref at a tree that touches `.github/workflows` unless the token holds a
+  `workflows` permission — which is not a key a `permissions:` block can set, so the
+  workflow cannot grant it to itself. Both routes are closed; the REST refs API is not a
+  way around it:
+
+  ```
+  ! [remote rejected] v1 -> v1 (refusing to allow a GitHub App to create or update
+    workflow `.github/workflows/ci.yml` without `workflows` permission)
+
+  gh: Resource not accessible by integration (HTTP 403)   # PATCH /git/refs/tags/v1
+  ```
+
+  Nearly every release here changes a workflow, so this is the normal path rather than an
+  edge case. Releasing v1.13.1 is where it surfaced: the tag was pushed, `v1` stayed on
+  v1.13.0, the notes step never ran, and nothing said so except a red run — a release
+  that announced itself and shipped to nobody. The same `git push` worked for v1.13.0 two
+  days earlier, so enforcement tightened under us rather than anything changing in the
+  diff.
+
+  Automating it again needs a PAT or a GitHub App with Workflows: write — a stored
+  credential that can rewrite CI, which is a larger decision than the one-line manual
+  push it replaces. Not taken here.
+
+  Nothing to do when bumping; this only affects cutting a release.
+
 ## [v1.14.0] — 2026-10-03
 
 ### Changed

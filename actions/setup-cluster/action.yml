@@ -35,8 +35,7 @@ outputs:
 runs:
   using: composite
   steps:
-    # Tag-pinned, moved by Dependabot. These majors are the node24 ones — a node20
-    # action is forced onto node24 by the runner today and breaks when node20 goes.
+    # Tag-pinned, moved by Dependabot. These majors are the node24 ones.
     - uses: azure/setup-helm@v5.0.1
       with:
         version: ${{ inputs.helm-version }}
@@ -82,10 +81,8 @@ runs:
         helm version --short
         kubectl version --client
 
-        # ubuntu-26.04 preinstalls Helm 4 at /usr/local/bin/helm. setup-helm prepends
-        # its pinned copy, so v3 wins today — but if that order ever flips, every
-        # deploy quietly switches to server-side apply with no --atomic, i.e. green
-        # runs and no automatic rollback. Assert rather than trust.
+        # ubuntu-26.04 preinstalls Helm 4; setup-helm prepends its pinned v3, so v3 wins
+        # today. If that order flips, deploys stay green with no --atomic rollback.
         installed="$(helm version --short)"
         case "$installed" in
           v3.*) ;;
