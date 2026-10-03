@@ -20,7 +20,7 @@ env:
 jobs:
   lint:
     name: Lint workflows and scripts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -135,7 +135,7 @@ jobs:
 
   secret-leak:
     name: Renderer never prints a value
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - run: python3 -m pip install --quiet pyyaml
@@ -411,7 +411,7 @@ jobs:
 
   manifest:
     name: Validate manifests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - run: python3 -m pip install --quiet pyyaml
@@ -491,7 +491,7 @@ jobs:
 
   chart:
     name: Chart lint and golden render
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -616,7 +616,7 @@ jobs:
 
   kubeconform:
     name: Rendered manifests are valid Kubernetes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
