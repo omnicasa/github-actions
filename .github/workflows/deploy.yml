@@ -56,9 +56,9 @@ on:
         default: deploy/values.yaml
       runs-on:
         description: >-
-          Runner label. Must be static — it is resolved before any step runs. Pinned to
-          a version, not ubuntu-latest: GitHub migrates that label over weeks, so during
-          the window runs land on two different images and a failure is not reproducible.
+          Runner label. Must be static — it is resolved before any step runs. Versioned,
+          not ubuntu-latest: that label migrates over weeks, so mid-window two runs of
+          one commit land on different images.
         type: string
         required: false
         default: ubuntu-26.04

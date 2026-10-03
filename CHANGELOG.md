@@ -12,8 +12,13 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 - **`release.yml` no longer moves `v1`, and no longer fails trying.** It still refuses a
   tag that is not `vX.Y.Z` or absent from this file, still publishes the release notes,
-  and now ends by printing the exact `git push` that moves the major tag — as a warning
-  with a job summary, not a red run.
+  and now ends by pointing at the new `scripts/move-major.sh vX.Y.Z` — as a warning with
+  a job summary, not a red run.
+
+  The script is the one manual step in a release. It refuses a tag that is not reachable
+  from `origin/main` (v1.12.0's failure) or that is older than the current `v1` (which
+  would roll every consumer back — nothing in `release.yml` ever compared versions), and
+  it confirms before pushing unless given `-y`.
 
   Why it cannot do it itself: GITHUB_TOKEN is a GitHub App token, and GitHub refuses to
   point a ref at a tree that touches `.github/workflows` unless the token holds a

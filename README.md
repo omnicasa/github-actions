@@ -108,7 +108,9 @@ every merge to `main` is gated by `ci.yml` first.
 Moving `v1` itself is a manual push, and deliberately so rather than by preference:
 GITHUB_TOKEN cannot point a ref at a tree containing `.github/workflows` changes — not by
 `git push`, not through the REST refs API — and a release here nearly always changes a
-workflow. `release.yml` prints the exact command in its job summary. Automating it would
+workflow. `scripts/move-major.sh vX.Y.Z` does it — refusing a tag that is off-main or
+older than the current `v1` — and `release.yml` prints that line in its job summary.
+Automating it would
 mean storing a PAT or App key with Workflows: write, i.e. a credential in CI that can
 rewrite CI.
 
