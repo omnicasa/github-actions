@@ -1,0 +1,7 @@
+# actionlint validates `runs-on` against a built-in label table, and no release knows
+# `ubuntu-26.04` yet (v1.7.12 stops at 24.04), so every job here fails runner-label
+# without this. `self-hosted-runner.labels` is the only hook for teaching it a label —
+# these are GitHub-hosted, not self-hosted. Drop the entry once actionlint ships 26.04.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
