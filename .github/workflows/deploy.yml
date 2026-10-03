@@ -233,7 +233,7 @@ jobs:
 
       - name: Resolve app, namespace and repository
         id: target
-        uses: omnicasa/github-actions/actions/resolve-target@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/resolve-target@v1
         with:
           environment: ${{ inputs.environment || github.ref_name }}
           manifest-path: ${{ inputs.manifest-path }}
@@ -315,7 +315,7 @@ jobs:
       # environment's.
       - name: Render build args
         id: build-args
-        uses: omnicasa/github-actions/actions/render-build-args@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/render-build-args@v1
         with:
           environment: ${{ inputs.environment || github.ref_name }}
           manifest-path: ${{ inputs.manifest-path }}
@@ -405,13 +405,13 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup cluster tooling
-        uses: omnicasa/github-actions/actions/setup-cluster@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/setup-cluster@v1
         with:
           kubeconfig-base64: ${{ secrets.KUBECONFIG_BASE64 }}
 
       - name: Authorise runner IP
         id: allowlist
-        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
         with:
           action: add
           project-id: ${{ vars.OVH_PROJECT_ID }}
@@ -422,7 +422,7 @@ jobs:
 
       - name: Fetch Doppler secrets
         id: doppler
-        uses: omnicasa/github-actions/actions/doppler-secrets@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/doppler-secrets@v1
         with:
           environment: ${{ inputs.environment || github.ref_name }}
           manifest-path: ${{ inputs.manifest-path }}
@@ -430,7 +430,7 @@ jobs:
 
       - name: Render Helm values
         id: render
-        uses: omnicasa/github-actions/actions/render-values@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/render-values@v1
         with:
           manifest-path: ${{ inputs.manifest-path }}
           environment: ${{ inputs.environment || github.ref_name }}
@@ -448,7 +448,7 @@ jobs:
 
       - name: Deploy with Helm
         id: helm
-        uses: omnicasa/github-actions/actions/helm-deploy@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/helm-deploy@v1
         with:
           release: ${{ steps.render.outputs.app }}
           namespace: ${{ steps.render.outputs.namespace }}
@@ -473,7 +473,7 @@ jobs:
         # — running k8s-diagnostics anyway crashes on blank namespace/release instead
         # of skipping, masking the real error.
         if: failure() && steps.render.outcome == 'success'
-        uses: omnicasa/github-actions/actions/k8s-diagnostics@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/k8s-diagnostics@v1
         with:
           namespace: ${{ steps.render.outputs.namespace }}
           release: ${{ steps.render.outputs.app }}
@@ -484,7 +484,7 @@ jobs:
 
       - name: Remove runner IP
         if: always()
-        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
         with:
           action: remove
           # The IP the add step actually used, in case the runner's egress
@@ -546,7 +546,7 @@ jobs:
       # is what still skips them all if the classifier itself failed.
       - name: Notify Teams deploys channel
         if: always() && steps.ctx.outputs.outcome != ''
-        uses: omnicasa/github-actions/actions/teams-notify@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/teams-notify@v1
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_DEPLOYS }}
           status: ${{ steps.ctx.outputs.outcome }}
@@ -564,7 +564,7 @@ jobs:
       # On-call, without the noise of every success too.
       - name: Notify Teams alerts channel
         if: always() && steps.ctx.outputs.alert == 'true'
-        uses: omnicasa/github-actions/actions/teams-notify@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/teams-notify@v1
         with:
           webhook-url: ${{ secrets.MSTEAMS_WEBHOOK_URL_ALERTS }}
           status: ${{ steps.ctx.outputs.outcome }}
@@ -579,7 +579,7 @@ jobs:
 
       - name: Notify Slack deployments channel
         if: always() && steps.ctx.outputs.outcome != ''
-        uses: omnicasa/github-actions/actions/slack-notify@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/slack-notify@v1
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_DEPLOYMENTS_ALL }}
           status: ${{ steps.ctx.outputs.outcome }}
@@ -594,7 +594,7 @@ jobs:
 
       - name: Notify Slack failures channel
         if: always() && steps.ctx.outputs.alert == 'true'
-        uses: omnicasa/github-actions/actions/slack-notify@chore/pin-ubuntu-26-04
+        uses: omnicasa/github-actions/actions/slack-notify@v1
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_DEPLOYMENTS_FAILED }}
           status: ${{ steps.ctx.outputs.outcome }}
