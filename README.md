@@ -88,7 +88,7 @@ request deploys staging and the merge deploys production.
 | `actions/teams-notify` | Posts an Adaptive Card to an MS Teams webhook; no-ops on a blank URL |
 | `actions/slack-notify` | Posts a Block Kit message to a Slack webhook; no-ops on a blank URL |
 | `templates/` | Copy-paste starting points for app repos |
-| `scripts/` | `check-workflow.sh`, `validate-manifest.py` — run these before opening a PR |
+| `scripts/` | `check-workflow.sh`, `validate-manifest.py` before a PR; `move-major.sh` at release |
 | `docs/` | Onboarding, the env-key contract, every chart value, the rollback runbook |
 
 ## Why the chart lives inside a composite action
@@ -105,14 +105,12 @@ Consumers track the floating major tag, `@v1`. A release is an annotated `vX.Y.Z
 which `release.yml` gates on the tag format and a CHANGELOG entry before publishing notes;
 every merge to `main` is gated by `ci.yml` first.
 
-Moving `v1` itself is a manual push, and deliberately so rather than by preference:
-GITHUB_TOKEN cannot point a ref at a tree containing `.github/workflows` changes — not by
-`git push`, not through the REST refs API — and a release here nearly always changes a
-workflow. `scripts/move-major.sh vX.Y.Z` does it — refusing a tag that is off-main or
-older than the current `v1` — and `release.yml` prints that line in its job summary.
-Automating it would
-mean storing a PAT or App key with Workflows: write, i.e. a credential in CI that can
-rewrite CI.
+Moving `v1` is the one manual step, by constraint not preference: GITHUB_TOKEN cannot
+point a ref at a tree containing `.github/workflows` changes — not by `git push`, not
+through the REST refs API — and a release here nearly always changes a workflow. Run
+`bash scripts/move-major.sh vX.Y.Z`, which `release.yml` names in its job summary; it
+refuses a tag that is off-main or older than the current `v1`. Automating it would mean a
+stored PAT or App key with Workflows: write — a credential in CI that can rewrite CI.
 
 The trade-off is deliberate and worth stating: a consumer's next deploy picks up whatever
 `v1` points at, without a PR to review. In exchange, there is exactly one ref in the whole
