@@ -1,6 +1,6 @@
 version: 2
 
-# Third-party actions used inside this repo are SHA-pinned, so Dependabot is the only
+# Third-party actions used inside this repo are tag-pinned, so Dependabot is the only
 # thing that moves them. Our own actions and workflows are tag-pinned by consumers, and
 # Dependabot updates those refs in the consuming repos, not here.
 updates:

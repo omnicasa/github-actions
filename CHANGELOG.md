@@ -6,6 +6,26 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.13.1] — 2026-10-03
+
+### Changed
+
+- **Every third-party action now runs on node24.** GitHub deprecated node20 on the
+  runners: a node20 action is already being forced onto node24 and annotated for it, and
+  stops working when node20 is removed. Bumped `docker/build-push-action` 6 → 7,
+  `actions/setup-node` 4 → 7, `azure/setup-helm` 4.2.0 → 5.0.1 and `azure/setup-kubectl`
+  4 → 5.
+
+  No input, chart value or workflow API changed, and the helm and kubectl versions stay
+  pinned by `actions/setup-cluster`'s own inputs, so the new majors' defaults are not
+  reachable. `build-push-action@v7` drops the `DOCKER_BUILD_NO_SUMMARY` and
+  `DOCKER_BUILD_EXPORT_RETENTION_DAYS` envs, which this repo never set, and
+  `setup-node@v5` caches automatically — the test job already passes `cache: npm`.
+
+  Nothing to do when bumping, on a GitHub-hosted runner. A self-hosted runner needs
+  Actions Runner v2.327.1 or later, which is what node24 requires; no Omnicasa caller
+  overrides `runs-on` today.
+
 ## [v1.13.0] — 2026-10-01
 
 ### Added
