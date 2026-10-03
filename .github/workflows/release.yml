@@ -54,20 +54,6 @@ jobs:
           grep -q "${{ steps.version.outputs.tag }}" CHANGELOG.md \
             || { echo "::error::CHANGELOG.md has no entry for ${{ steps.version.outputs.tag }}"; exit 1; }
 
-      - name: Move the floating major tag
-        run: |
-          set -euo pipefail
-          major="${{ steps.version.outputs.major }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Name the target commit explicitly rather than relying on HEAD. Belt and
-          # braces with the `ref:` above: whatever is checked out, v1 lands on the
-          # commit the requested tag names.
-          target=$(git rev-list -n1 "${{ steps.version.outputs.tag }}")
-          git tag -f -a "$major" -m "Track ${{ steps.version.outputs.tag }}" "$target"
-          git push -f origin "$major"
-          echo "::notice::$major now points at ${{ steps.version.outputs.tag }} ($target)"
-
       - name: Publish release notes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,3 +63,49 @@ jobs:
             --title "${{ steps.version.outputs.tag }}" \
             --generate-notes \
             || gh release edit "${{ steps.version.outputs.tag }}" --title "${{ steps.version.outputs.tag }}"
+
+      # This job cannot move `v1` itself. GITHUB_TOKEN is a GitHub App token, and both
+      # the Git push endpoint and the REST refs API refuse to point a ref at a tree that
+      # touches .github/workflows unless the token holds a `workflows` permission — which
+      # is not a key a permissions: block can set, so the workflow cannot grant it to
+      # itself. Confirmed on run 37140676761: git push is rejected outright, and
+      # PATCH /git/refs/tags/v1 answers 403 Resource not accessible by integration.
+      # Almost every release here changes a workflow, so this is the normal path, not
+      # an edge case.
+      #
+      # Automating it again needs a PAT or a GitHub App with Workflows: write, i.e. a
+      # stored credential that can rewrite CI — weigh that against a one-line manual
+      # step before reaching for it.
+      - name: Hand over the v1 move
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          MAJOR: ${{ steps.version.outputs.major }}
+        run: |
+          set -euo pipefail
+          target=$(git rev-list -n1 "$TAG")
+          current=$(git rev-list -n1 "$MAJOR" 2>/dev/null || echo none)
+
+          if [ "$current" = "$target" ]; then
+            echo "::notice::$MAJOR already points at $TAG ($target)"
+            exit 0
+          fi
+
+          # A warning, not an error: the tag and the release notes above are real, and
+          # failing the run would imply they are not. What is outstanding is one push.
+          echo "::warning::$MAJOR still points at $current — move it with the command in the job summary"
+
+          # Written with echo, not a heredoc: a heredoc body inside this block scalar
+          # carries the YAML indentation into the summary, and leading spaces turn
+          # markdown into a code block and break the fences below.
+          {
+            echo "### $MAJOR is not on $TAG yet"
+            echo
+            echo "Consumers tracking \`$MAJOR\` keep running \`$current\` until someone"
+            echo "with their own credentials runs:"
+            echo
+            echo '```'
+            echo "git fetch origin --tags"
+            echo "git tag -f -a $MAJOR -m \"Track $TAG\" $target"
+            echo "git push -f origin $MAJOR"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
