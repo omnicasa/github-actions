@@ -32,6 +32,10 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
   kubectl is unaffected in substance — 26.04 preinstalls 1.37.1, the action pins 1.31.0,
   and only the pinned client is ever on PATH.
 
+  An app repo that pins `ubuntu-26.04` in its own workflows and lints them will need the
+  same `.github/actionlint.yaml` entry added here: no actionlint release knows the label
+  yet, so `runs-on` fails the `runner-label` check without it.
+
 ## [v1.13.1] — 2026-10-03
 
 ### Changed
