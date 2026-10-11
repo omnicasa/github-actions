@@ -6,7 +6,7 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
-## [Unreleased]
+## [v1.15.0] — 2026-10-11
 
 ### Changed
 
