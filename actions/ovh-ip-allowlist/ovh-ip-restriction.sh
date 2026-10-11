@@ -9,6 +9,8 @@
 # Optional:
 #   OVH_API_URL   default https://api.ovh.com/1.0
 #   RETRIES       default 3
+#   UPSCALE_WAIT  default 900, seconds to keep retrying while OVH answers 400 UPSCALING
+#   UPSCALE_SLEEP default 15, seconds between those retries
 #   FAIL_ON_ERROR default true for add, callers pass false for remove
 #
 # On success prints the IP it acted on to stdout. Everything else goes to stderr,
@@ -20,6 +22,8 @@ forced_ip="${2:-}"
 
 API_URL="${OVH_API_URL:-https://api.ovh.com/1.0}"
 RETRIES="${RETRIES:-3}"
+UPSCALE_WAIT="${UPSCALE_WAIT:-900}"
+UPSCALE_SLEEP="${UPSCALE_SLEEP:-15}"
 FAIL_ON_ERROR="${FAIL_ON_ERROR:-true}"
 
 log() { echo "$@" >&2; }
@@ -109,6 +113,20 @@ while :; do
       fi
       ;;
   esac
+
+  # While a nodepool upscales, OVH rejects allowlist changes with a 400 that
+  # mentions UPSCALING. It clears on its own, so wait on a separate time budget
+  # instead of burning the normal attempts.
+  if [ "$http_code" = "400" ] && printf '%s' "$body" | grep -qi 'upscaling'; then
+    now=$(date +%s)
+    : "${upscale_deadline:=$((now + UPSCALE_WAIT))}"
+    if [ "$now" -lt "$upscale_deadline" ]; then
+      log "ovh-ip-allowlist: nodepool upscaling, retrying in ${UPSCALE_SLEEP}s ($((upscale_deadline - now))s of wait left): ${body}"
+      sleep "$UPSCALE_SLEEP"
+      continue
+    fi
+    die "nodepool still upscaling after ${UPSCALE_WAIT}s, could not ${action} ${agent_ip}/32 (HTTP ${http_code})"
+  fi
 
   # This status check is the whole point of the rewrite. The previous version
   # ignored it, so a failed `add` exited 0 and the failure only surfaced ten

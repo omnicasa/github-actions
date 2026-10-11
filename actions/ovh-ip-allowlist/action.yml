@@ -33,6 +33,12 @@ inputs:
     description: Attempts before giving up
     required: false
     default: "3"
+  upscale-wait:
+    description: >-
+      Seconds to keep retrying (every 15s) while OVH rejects the change with 400 UPSCALING,
+      which happens while a nodepool scales up. Separate from `retries`.
+    required: false
+    default: "900"
   fail-on-error:
     description: >-
       true fails the step on an API error. Use true for add — a silent failure there
@@ -63,6 +69,7 @@ runs:
         OVH_GA_CONSUMER_KEY: ${{ inputs.consumer-key }}
         OVH_API_URL: ${{ inputs.api-url }}
         RETRIES: ${{ inputs.retries }}
+        UPSCALE_WAIT: ${{ inputs.upscale-wait }}
         FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
       run: |
         set -euo pipefail

@@ -127,6 +127,13 @@ on:
         type: string
         required: false
         default: 5m
+      ovh-upscale-wait:
+        description: >-
+          Seconds to keep retrying the OVH IP allowlist add while a nodepool is
+          upscaling (OVH answers 400 UPSCALING). Raise it for slow scale-ups.
+        type: string
+        required: false
+        default: "900"
 
     # No `secrets:` block. Callers pass `secrets: inherit`, and the deploy job declares
     # `environment:`, which is what makes that environment's secrets resolvable here.
@@ -419,6 +426,7 @@ jobs:
           application-key: ${{ secrets.OVH_GA_APPLICATION_KEY }}
           application-secret: ${{ secrets.OVH_GA_APPLICATION_SECRET }}
           consumer-key: ${{ secrets.OVH_GA_CONSUMER_KEY }}
+          upscale-wait: ${{ inputs.ovh-upscale-wait }}
 
       - name: Fetch Doppler secrets
         id: doppler
@@ -496,6 +504,7 @@ jobs:
           application-secret: ${{ secrets.OVH_GA_APPLICATION_SECRET }}
           consumer-key: ${{ secrets.OVH_GA_CONSUMER_KEY }}
           # Must not mask the real deploy failure with an allowlist error.
+          upscale-wait: ${{ inputs.ovh-upscale-wait }}
           fail-on-error: "false"
 
   notify:
