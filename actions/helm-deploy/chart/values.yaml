@@ -157,6 +157,9 @@ resources:
 # KEDA ScaledObject, not a plain HPA (see templates/hpa.yaml).
 autoscaling:
   enabled: false
+  # 0 lets KEDA scale to zero. The Deployment omits `replicas` while autoscaling is on, so a
+  # Helm upgrade leaves the count to KEDA. cpu and memory scalers cannot start from zero: drop
+  # the two targets below and use an event trigger (see `triggers`).
   minReplicas: 2
   maxReplicas: 5
   targetCPUUtilizationPercentage: 80

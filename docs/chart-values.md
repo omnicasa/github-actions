@@ -124,7 +124,7 @@ the process is up makes `--atomic` decorative. Set to `{}` to disable.
 | Key | Default | Notes |
 |---|---|---|
 | `autoscaling.enabled` | `false` | Renders a **KEDA `ScaledObject`**, not an `autoscaling/v2` HPA |
-| `autoscaling.minReplicas` / `.maxReplicas` | `2` / `5` | |
+| `autoscaling.minReplicas` / `.maxReplicas` | `2` / `5` | `minReplicas: 0` scales to zero when the triggers are inactive. KEDA rejects zero with only the cpu/memory targets, so set both targets to `null` and add an event trigger |
 | `autoscaling.targetCPUUtilizationPercentage` | `80` | |
 | `autoscaling.targetMemoryUtilizationPercentage` | unset | |
 | `autoscaling.triggers`, `.advanced` | `[]` / `{}` | Raw KEDA passthrough |
