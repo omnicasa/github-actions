@@ -6,6 +6,19 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.15.1] — 2026-10-11
+
+### Changed
+
+- **The OVH IP allowlist now waits out a nodepool upscale.** While a nodepool scales up, OVH
+  answers the add with `400` and a message containing `UPSCALING`. That used to burn the 3
+  attempts (about 10 seconds) and fail the deploy. Now `ovh-ip-restriction.sh` retries every
+  15s on that error, on a separate time budget. Other errors keep the old 3-attempt behavior.
+
+  The budget defaults to 900s. `ovh-ip-allowlist` takes a new `upscale-wait` input (seconds),
+  and `deploy.yml` a new `ovh-upscale-wait` input that feeds both the add and remove steps.
+  Existing callers need no change.
+
 ## [v1.15.0] — 2026-10-11
 
 ### Changed
