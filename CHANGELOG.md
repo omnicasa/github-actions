@@ -6,6 +6,20 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [Unreleased]
+
+### Changed
+
+- **`autoscaling.minReplicas` may now be `0`** (the schema minimum was `1`). With
+  `autoscaling.enabled: true` the chart already omits `spec.replicas` from the Deployment, so
+  KEDA owns the count and a Helm upgrade no longer resets it.
+
+  Before, an app that wanted scale-to-zero had to turn the chart's ScaledObject off, ship its
+  own through `extraManifests`, and set `replicaCount: 0`, which made every `helm upgrade` set
+  the Deployment to zero and kill running work. Now it sets `minReplicas: 0` with an event
+  trigger and no cpu/memory targets (KEDA cannot scale those from zero and rejects the
+  ScaledObject). Existing values are unaffected: no default changes.
+
 ## [v1.14.1] — 2026-10-03
 
 ### Changed

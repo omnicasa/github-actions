@@ -510,6 +510,36 @@ jobs:
           fi
           echo "schema rejects unknown keys"
 
+      - name: Autoscaling can scale to zero and leaves replicas to KEDA
+        run: |
+          set -euo pipefail
+          cat > /tmp/zero.yaml <<'YAML'
+          autoscaling:
+            enabled: true
+            minReplicas: 0
+            maxReplicas: 10
+            targetCPUUtilizationPercentage: null
+            triggers:
+              - type: metrics-api
+                metricType: AverageValue
+                metadata:
+                  url: https://example.invalid/metrics
+                  valueLocation: total
+                  targetValue: '1'
+          YAML
+          helm template t "$CHART" -f "$CHART/values.yaml" -f /tmp/zero.yaml > /tmp/zero-out.yaml
+          grep -q 'minReplicaCount: 0' /tmp/zero-out.yaml \
+            || { echo '::error::minReplicas: 0 did not reach the ScaledObject'; exit 1; }
+          if awk '/^kind: Deployment/{d=1} d&&/^  replicas:/{found=1} /^---/{d=0} END{exit !found}' /tmp/zero-out.yaml; then
+            echo '::error::the Deployment sets replicas while autoscaling owns the count'; exit 1
+          fi
+          echo 'minReplicas: -1' > /tmp/neg.yaml
+          sed -i '1i autoscaling:' /tmp/neg.yaml && sed -i 's/^minReplicas/  minReplicas/' /tmp/neg.yaml
+          if helm template t "$CHART" -f /tmp/neg.yaml >/dev/null 2>&1; then
+            echo '::error::the schema accepted a negative minReplicas'; exit 1
+          fi
+          echo "scale to zero renders, replicas is left to KEDA, negative still rejected"
+
       - name: Golden render is unchanged
         run: |
           set -euo pipefail
