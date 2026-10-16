@@ -49,12 +49,15 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
 
+# No CPU limit: throttling slows the app under load and saves nothing. The chart defaults
+# `limits.cpu` to 500m and maps merge, so `null` is what removes it. Raise the request
+# only if `kubectl top pods` shows sustained use above it. The memory limit stays.
 resources:
   requests:
-    cpu: 100m
+    cpu: 50m
     memory: 256Mi
   limits:
-    cpu: 500m
+    cpu: null
     memory: 512Mi
 
 autoscaling:
