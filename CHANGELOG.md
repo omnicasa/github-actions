@@ -6,6 +6,16 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.16.0] — 2026-10-23
+
+### Added
+
+- **Build & push prints the image's `node -v` to the log and the job summary.** After a
+  successful `docker/build-push-action` it pulls the digest just pushed, runs
+  `node -v` with the image's own entrypoint overridden, and writes the version. The
+  step is print-only: `continue-on-error: true`, a 3-minute timeout, and a warning if
+  the image has no `node` or the pull fails. Existing callers need no change.
+
 ## [v1.15.1] — 2026-10-11
 
 ### Changed

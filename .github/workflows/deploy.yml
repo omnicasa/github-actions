@@ -332,7 +332,8 @@ jobs:
           # from two expressions leaves a blank line whenever either is empty.
           extra-build-args: ${{ inputs.build-args }}
 
-      - uses: docker/build-push-action@v7
+      - id: build
+        uses: docker/build-push-action@v7
         with:
           # Explicit, because the default context is the git ref — which ignores
           # anything a previous step generated in the workspace.
@@ -354,6 +355,31 @@ jobs:
           # Cache lives with the repo, so there is no registry cache image to garbage-collect.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Pushed, not loaded: buildx leaves nothing in the local docker store, so pull the
+      # exact digest we just pushed. Print-only: never fails a build.
+      - name: Report Node version in image
+        if: success()
+        continue-on-error: true
+        timeout-minutes: 3
+        shell: bash
+        env:
+          IMAGE: ${{ vars.OVH_REGISTRY }}/${{ needs.resolve.outputs.repository }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          PLATFORMS: ${{ inputs.build-platforms }}
+        run: |
+          set -uo pipefail
+          ref="$IMAGE@$DIGEST"
+          plat="${PLATFORMS%%,*}"
+          if docker pull -q --platform "$plat" "$ref" >/dev/null \
+             && v=$(docker run --rm --platform "$plat" --entrypoint node "$ref" -v 2>/dev/null); then
+            echo "Node in $IMAGE:$TAG ($plat): $v"
+            echo "**Node in image:** \`$v\` ($IMAGE:$TAG, $plat)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Node version::could not run node -v in $ref (no node in image, or pull failed)"
+          fi
+          docker image rm "$ref" >/dev/null 2>&1 || true
 
       # `always()`, because a failed build leaves the files behind just the same, and
       # the runner is reused across jobs on self-hosted labels.
