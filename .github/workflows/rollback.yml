@@ -27,6 +27,18 @@ on:
         type: string
         required: false
         default: ubuntu-26.04
+      deploy-runs-on:
+        description: >-
+          Runner for the rollback job. JSON: '"ubuntu-26.04"' for hosted, the default is
+          the org runner already on both OVH allowlists. See deploy.yml.
+        type: string
+        required: false
+        default: '{"group":"omnicasa-runners","labels":["omnicasa-ovh"]}'
+      ovh-allowlist:
+        description: Add and remove the runner's IP on the OVH allowlist. True for hosted runners.
+        type: boolean
+        required: false
+        default: false
       timeout:
         type: string
         required: false
@@ -43,7 +55,7 @@ permissions:
 jobs:
   rollback:
     name: Rollback
-    runs-on: ${{ inputs.runs-on }}
+    runs-on: ${{ fromJSON(inputs.deploy-runs-on) }}
     environment: ${{ inputs.environment }}
     concurrency:
       # IDENTICAL to the deploy workflow's group. If these two ever diverge, a
@@ -62,6 +74,7 @@ jobs:
 
       - name: Authorise runner IP
         id: allowlist
+        if: inputs.ovh-allowlist
         uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
         with:
           action: add
@@ -99,8 +112,12 @@ jobs:
           namespace: ${{ steps.manifest.outputs.namespace }}
           release: ${{ steps.manifest.outputs.app }}
 
-      - name: Remove runner IP
+      - name: Remove kubeconfig
         if: always()
+        run: rm -f /tmp/kubeconfig
+
+      - name: Remove runner IP
+        if: always() && inputs.ovh-allowlist
         uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
         with:
           action: remove

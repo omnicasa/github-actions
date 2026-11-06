@@ -6,6 +6,22 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [Unreleased]
+
+### Changed
+
+- **The deploy and rollback jobs run on the org runner by default, with no OVH allowlist
+  round-trip.** `ci-runner01` (group `omnicasa-runners`, label `omnicasa-ovh`) has its
+  egress IP permanently on both OVH allowlists, so a nodepool upscale no longer fails the
+  deploy. New inputs on `deploy.yml` and `rollback.yml`: `deploy-runs-on` (JSON, default
+  `{"group":"omnicasa-runners","labels":["omnicasa-ovh"]}`) and `ovh-allowlist` (default
+  `false`). Only the job that holds `environment:` moves; resolve, test, build and notify
+  stay on `runs-on`. The job also deletes `/tmp/kubeconfig` at the end, since the runner
+  is persistent.
+
+  To stay on a hosted runner, pass `deploy-runs-on: '"ubuntu-26.04"'` and
+  `ovh-allowlist: true`. Existing callers move to the org runner at the next `v1` bump.
+
 ## [v1.16.0] — 2026-10-23
 
 ### Added

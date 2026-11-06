@@ -62,6 +62,23 @@ on:
         type: string
         required: false
         default: ubuntu-26.04
+      deploy-runs-on:
+        description: >-
+          Runner for the deploy job, the only one that talks to the cluster. A JSON
+          value, because `runs-on` takes a string, a list or a {group, labels} object:
+          '"ubuntu-26.04"' is a hosted runner, the default is the org runner whose
+          egress IP is permanently on both OVH allowlists. Static like `runs-on`.
+        type: string
+        required: false
+        default: '{"group":"omnicasa-runners","labels":["omnicasa-ovh"]}'
+      ovh-allowlist:
+        description: >-
+          Add the runner's IP to the OVH cluster allowlist for the deploy, and remove
+          it after. Leave false on the org runner (already allowlisted); set true when
+          deploy-runs-on is a hosted runner, whose IP changes every run.
+        type: boolean
+        required: false
+        default: false
       image-tag:
         description: Deploy an already-built tag instead of building. Blank means github.sha.
         type: string
@@ -407,7 +424,7 @@ jobs:
     if: >-
       ${{ needs.resolve.outputs.enabled == 'true' && !inputs.build-only
           && always() && !failure() && !cancelled() }}
-    runs-on: ${{ inputs.runs-on }}
+    runs-on: ${{ fromJSON(inputs.deploy-runs-on) }}
     # `environment:` and `concurrency:` cannot read the `env` context, so this
     # expression is repeated inline rather than factored into a variable. Referencing
     # `env` here fails silently — the job runs with no environment at all.
@@ -444,6 +461,7 @@ jobs:
 
       - name: Authorise runner IP
         id: allowlist
+        if: inputs.ovh-allowlist
         uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
         with:
           action: add
@@ -512,12 +530,13 @@ jobs:
           namespace: ${{ steps.render.outputs.namespace }}
           release: ${{ steps.render.outputs.app }}
 
-      - name: Remove rendered values
+      # The org runner is persistent: the kubeconfig must not outlive the job.
+      - name: Remove rendered values and kubeconfig
         if: always()
-        run: rm -f /tmp/release-values.json /tmp/app-env-values.json /tmp/doppler-secrets.json
+        run: rm -f /tmp/release-values.json /tmp/app-env-values.json /tmp/doppler-secrets.json /tmp/kubeconfig
 
       - name: Remove runner IP
-        if: always()
+        if: always() && inputs.ovh-allowlist
         uses: omnicasa/github-actions/actions/ovh-ip-allowlist@v1
         with:
           action: remove
