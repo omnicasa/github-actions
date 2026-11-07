@@ -6,7 +6,7 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
-## [Unreleased]
+## [v1.17.0] — 2026-11-07
 
 ### Changed
 
@@ -20,7 +20,7 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
   is persistent.
 
   To stay on a hosted runner, pass `deploy-runs-on: '"ubuntu-26.04"'` and
-  `ovh-allowlist: true`. Existing callers move to the org runner at the next `v1` bump.
+  `ovh-allowlist: true`. Existing callers move to the org runner when `v1` moves to this release.
 
 ## [v1.16.0] — 2026-10-23
 
