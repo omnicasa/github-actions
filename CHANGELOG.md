@@ -17,7 +17,8 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
     and writes a CycloneDX SBOM, before "Shred build secrets";
   - a new job `Security scan (source)` runs gitleaks over the full git history and Trivy
     over the source tree, Dockerfile and Helm values, in parallel with the build. No other
-    job waits for it.
+    job waits for it. It runs only on a call that builds, so a `build-only` call plus
+    several `build: false` deploy calls of one commit scan it once.
 
   Findings go to the job summary, a `::warning` annotation and a `security-*` artifact
   (SARIF, JSON, SBOM, 30 days). Every scan step has `continue-on-error` and a timeout, so

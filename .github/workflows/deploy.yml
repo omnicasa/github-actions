@@ -294,7 +294,12 @@ jobs:
   security-source:
     name: Security scan (source)
     needs: resolve
-    if: inputs.security-scan && needs.resolve.outputs.enabled == 'true'
+    # Same gate as the build job: a call that only promotes an existing image
+    # (`build: false`) scans nothing, because the call that built it already did, and a
+    # build-only call scans even when its own environment is switched off.
+    if: >-
+      ${{ inputs.security-scan && inputs.build
+          && (inputs.build-only || needs.resolve.outputs.enabled == 'true') }}
     # Belt and braces with the per-step settings: even a failed job leaves the run green.
     continue-on-error: true
     runs-on: ${{ inputs.runs-on }}
