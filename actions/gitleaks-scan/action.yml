@@ -1,0 +1,38 @@
+name: Gitleaks scan
+description: >-
+  Scan the full git history of the checked-out repo for committed secrets and write the
+  findings to the job summary and a report directory. Report-only: it never fails the
+  job, because a secret scanner that blocks a deploy gets switched off.
+
+# The gitleaks CLI, not gitleaks/gitleaks-action: the action needs a paid
+# GITLEAKS_LICENSE on org repos, and a tag we do not control would run in a job that
+# can read the repo. The binary is pinned and its SHA-256 is in gitleaks-scan.sh.
+#
+# Needs a checkout with fetch-depth: 0, otherwise only one commit is scanned.
+
+inputs:
+  report-dir:
+    description: Directory the reports are written to. Upload it with actions/upload-artifact.
+    required: false
+    default: security-reports
+  config:
+    description: >-
+      Gitleaks config in the caller repo. Blank uses .gitleaks.toml when it exists, else
+      the built-in ruleset.
+    required: false
+    default: ""
+
+outputs:
+  findings:
+    description: Number of leaks found. Blank when the scan itself failed.
+    value: ${{ steps.scan.outputs.findings }}
+
+runs:
+  using: composite
+  steps:
+    - id: scan
+      shell: bash
+      env:
+        REPORT_DIR: ${{ inputs.report-dir }}
+        CONFIG: ${{ inputs.config }}
+      run: bash "${{ github.action_path }}/gitleaks-scan.sh"

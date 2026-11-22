@@ -6,6 +6,29 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.18.0] — unreleased
+
+### Added
+
+- **Optional, report-only security scans in `deploy.yml`: gitleaks and Trivy.** New input
+  `security-scan` (default `false`, so moving `v1` changes nothing for a caller that does
+  not set it). When `true`:
+  - the build job scans the pushed image digest with Trivy (vulnerabilities and secrets)
+    and writes a CycloneDX SBOM, before "Shred build secrets";
+  - a new job `Security scan (source)` runs gitleaks over the full git history and Trivy
+    over the source tree, Dockerfile and Helm values, in parallel with the build. No other
+    job waits for it.
+
+  Findings go to the job summary, a `::warning` annotation and a `security-*` artifact
+  (SARIF, JSON, SBOM, 30 days). Every scan step has `continue-on-error` and a timeout, so
+  nothing can fail or gate the deploy; the image scan adds a minute or two before it.
+  New actions `actions/gitleaks-scan` and `actions/trivy-scan`. Both download the release
+  binary and check a SHA-256 kept in this repo, instead of using `gitleaks/gitleaks-action`
+  (paid licence on org repos) or `aquasecurity/trivy-action` (tags hijacked in March 2026,
+  CVE-2026-33634). A `.trivyignore` and a `.gitleaks.toml` in the caller repo are honoured.
+
+  Needs no new permission or secret: `actions/upload-artifact` and a read-only token.
+
 ## [v1.17.0] — 2026-11-07
 
 ### Changed

@@ -205,6 +205,25 @@ bash /path/to/github-actions/scripts/check-workflow.sh /path/to/app-repo
 Fix every FAIL. Read the warnings — several describe failures that only appear after a
 successful-looking deploy.
 
+### 7. Security scans (optional, report-only)
+
+Add `security-scan: true` to the `with:` of each caller job to scan every build:
+
+- **Trivy on the pushed image**, inside the build job, by digest: vulnerabilities and
+  secrets baked into the image, plus a CycloneDX SBOM. Adds a minute or two before the
+  deploy starts.
+- **Gitleaks over the full git history** and **Trivy over the source tree** (dependency
+  lockfiles, Dockerfile, Helm values, licences), in a parallel job that no other job waits
+  for.
+
+Nothing here can fail or block a deploy. Read the findings in the run's job summary, or
+download the `security-image-*` / `security-source-*` artifacts (SARIF, JSON, SBOM; kept 30
+days). Secret values are redacted everywhere. Rotate anything real.
+
+To silence a false positive: a `.gitleaksignore` (fingerprints) or `.gitleaks.toml`, and a
+`.trivyignore` (CVE ids), at the repo root. Both tools are pinned by version and SHA-256 in
+`actions/*-scan/*.sh`, not by a marketplace action tag.
+
 ## Gotchas worth knowing before you hit them
 
 - **Probe and annotation maps merge, they do not replace.** If the chart default sets a
