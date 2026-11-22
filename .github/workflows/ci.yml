@@ -731,7 +731,7 @@ jobs:
           mkdir -p "$out"
           export REPORT_DIR="$RUNNER_TEMP/reports"
 
-          GITHUB_OUTPUT="$out/gitleaks" CONFIG= \
+          GITHUB_OUTPUT="$out/gitleaks" CONFIG="" \
             bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
           GITHUB_OUTPUT="$out/fs" MODE=fs TARGET=. PLATFORM=linux/amd64 \
             bash "$GITHUB_WORKSPACE/actions/trivy-scan/trivy-scan.sh"
