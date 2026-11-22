@@ -19,23 +19,23 @@ trivy="$bin_dir/trivy"
 
 # Two DB mirrors: ghcr.io rate-limits anonymous pulls from shared runner IPs.
 common=(--no-progress --quiet
-  --db-repository public.ecr.aws/aquasecurity/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2
-  --java-db-repository public.ecr.aws/aquasecurity/trivy-java-db:1,ghcr.io/aquasecurity/trivy-java-db:1)
+  --db-repository "public.ecr.aws/aquasecurity/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2"
+  --java-db-repository "public.ecr.aws/aquasecurity/trivy-java-db:1,ghcr.io/aquasecurity/trivy-java-db:1")
 [ -f .trivyignore ] && common+=(--ignorefile .trivyignore)
 
 case "$MODE" in
   image)
     label="image ${TARGET}"
     # Everything Trivy can say about an image; --ignore-unfixed is deliberately off.
-    scan=(image --scanners vuln,secret --image-src remote --platform "$PLATFORM" "$TARGET")
+    scan=(image --scanners "vuln,secret" --image-src remote --platform "$PLATFORM" "$TARGET")
     "$trivy" "${common[@]}" image --format cyclonedx --image-src remote --platform "$PLATFORM" \
       --output "$REPORT_DIR/trivy-image.sbom.cdx.json" "$TARGET" || echo "::warning title=Trivy SBOM::SBOM generation failed"
-    stem=trivy-image
+    stem="trivy-image"
     ;;
   fs)
     label="source tree"
-    scan=(fs --scanners vuln,secret,misconfig,license "$TARGET")
-    stem=trivy-fs
+    scan=(fs --scanners "vuln,secret,misconfig,license" "$TARGET")
+    stem="trivy-fs"
     ;;
   *)
     echo "::error::mode must be image or fs, got '$MODE'"; exit 1 ;;
@@ -46,6 +46,7 @@ esac
 
 # One flat list of findings across the four scanners. Secret values are never read: the
 # summary names the rule and the file, nothing else.
+# shellcheck disable=SC2016  # $t is a jq variable
 flat='[ .Results[]? | .Target as $t
   | ( (.Vulnerabilities[]?     | {kind:"vuln",    sev:.Severity, id:.VulnerabilityID, what:(.PkgName + " " + .InstalledVersion), fix:(.FixedVersion // ""), target:$t}),
       (.Secrets[]?             | {kind:"secret",  sev:.Severity, id:.RuleID,          what:.Title,                               fix:"",                      target:$t}),
