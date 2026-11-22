@@ -128,13 +128,13 @@ on:
         description: >-
           Scan for leaked secrets and known vulnerabilities, report-only: findings land in
           the job summary and a security-* artifact, and nothing here can fail or gate the
-          run. Trivy scans the pushed image inside the build job (adds a minute or two
+          run. Trivy scans the pushed image inside the build job (adds well under a minute
           before the deploy starts); a parallel job runs gitleaks over the full git
-          history and Trivy over the source tree and Helm values. Off by default while
-          the pilot runs.
+          history and Trivy over the source tree and Helm values. On by default; a caller
+          opts out with `security-scan: false`.
         type: boolean
         required: false
-        default: false
+        default: true
       test-command:
         description: >-
           Shell command for the test job. Blank skips the job entirely — better than a
@@ -325,7 +325,7 @@ jobs:
       - name: Upload source scan reports
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-source-${{ inputs.environment || github.ref_name }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/security-source
@@ -471,7 +471,7 @@ jobs:
       - name: Upload image scan reports
         if: always() && inputs.security-scan && steps.trivy-image.outcome != 'skipped'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-image-${{ inputs.environment || github.ref_name }}-${{ steps.tag.outputs.tag }}
           path: ${{ runner.temp }}/security-image
