@@ -15,8 +15,10 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
   release, with no change to its workflow. Opt out with `security-scan: false`. When on:
   - the build job scans the pushed image digest with Trivy (vulnerabilities and secrets)
     and writes a CycloneDX SBOM, before "Shred build secrets";
-  - a new job `Security scan (source)` runs gitleaks over the full git history and Trivy
-    over the source tree, Dockerfile and Helm values, in parallel with the build. No other
+  - a new job `Security scan (source)` runs gitleaks over the new commits and Trivy
+    over the source tree, Dockerfile and Helm values, in parallel with the build. Gitleaks
+    scans only the new commits of a PR or push (`base..head`); a manual run
+    (`workflow_dispatch`) scans the full history, which is how to run the one-off full scan. No other
     job waits for it. It runs only on a call that builds, so a `build-only` call plus
     several `build: false` deploy calls of one commit scan it once.
 

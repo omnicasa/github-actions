@@ -129,8 +129,8 @@ on:
           Scan for leaked secrets and known vulnerabilities, report-only: findings land in
           the job summary and a security-* artifact, and nothing here can fail or gate the
           run. Trivy scans the pushed image inside the build job (adds well under a minute
-          before the deploy starts); a parallel job runs gitleaks over the full git
-          history and Trivy over the source tree and Helm values. On by default; a caller
+          before the deploy starts); a parallel job runs gitleaks over the new commits of a
+          push or PR (the full history on a manual run) and Trivy over the source tree and Helm values. On by default; a caller
           opts out with `security-scan: false`.
         type: boolean
         required: false
@@ -305,18 +305,29 @@ jobs:
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 20
     steps:
-      # Full history, because a secret removed in a later commit is still a leaked secret.
+      # Full history, because gitleaks needs the commits behind a range, and a manual
+      # run scans all of them (a secret removed in a later commit is still a leaked secret).
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
 
+      # A PR or a push scans only its own new commits, so a finding is about this change
+      # and not about history already triaged. A manual run (workflow_dispatch) or any
+      # other event scans the whole history: that is how the full scan is run on demand.
       - name: Scan git history (gitleaks)
         continue-on-error: true
         timeout-minutes: 10
         uses: omnicasa/github-actions/actions/gitleaks-scan@v1
         with:
+          log-opts: >-
+            ${{ github.event_name == 'pull_request'
+                && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha)
+                || github.event_name == 'push'
+                && github.event.before != '0000000000000000000000000000000000000000'
+                && format('{0}..{1}', github.event.before, github.sha)
+                || '' }}
           report-dir: ${{ runner.temp }}/security-source
 
       - name: Scan source, Dockerfile and Helm values (Trivy)

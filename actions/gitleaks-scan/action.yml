@@ -1,7 +1,8 @@
 name: Gitleaks scan
 description: >-
-  Scan the full git history of the checked-out repo for committed secrets and write the
-  findings to the job summary and a report directory. Report-only: it never fails the
+  Scan the git history of the checked-out repo for committed secrets and write the
+  findings to the job summary and a report directory. Full history by default, or only a
+  commit range with log-opts. Report-only: it never fails the
   job, because a secret scanner that blocks a deploy gets switched off.
 
 # The gitleaks CLI, not gitleaks/gitleaks-action: the action needs a paid
@@ -11,6 +12,13 @@ description: >-
 # Needs a checkout with fetch-depth: 0, otherwise only one commit is scanned.
 
 inputs:
+  log-opts:
+    description: >-
+      A git revision range such as `base..head`: only those commits are scanned. Blank
+      scans the full history. A range whose start commit is not in the clone falls back
+      to the full history, with a notice.
+    required: false
+    default: ""
   report-dir:
     description: Directory the reports are written to. Upload it with actions/upload-artifact.
     required: false
@@ -35,4 +43,5 @@ runs:
       env:
         REPORT_DIR: ${{ inputs.report-dir }}
         CONFIG: ${{ inputs.config }}
+        LOG_OPTS: ${{ inputs.log-opts }}
       run: bash "${{ github.action_path }}/gitleaks-scan.sh"

@@ -24,6 +24,21 @@ config="${CONFIG:-}"
 args=(git --redact --exit-code 0 --no-banner --max-decode-depth 3)
 [ -n "$config" ] && args+=(--config "$config")
 
+scope="full history"
+log_opts="${LOG_OPTS:-}"
+if [ -n "$log_opts" ]; then
+  start="${log_opts%%..*}"
+  # A force push or a shallow clone can leave the range start missing; scanning
+  # everything is slower but never silently scans nothing.
+  if git cat-file -e "${start}^{commit}" 2>/dev/null; then
+    args+=(--log-opts="$log_opts")
+    end="${log_opts##*..}"
+    scope="new commits ${start:0:8}..${end:0:8}"
+  else
+    echo "::notice title=Gitleaks::range start ${start:0:8} is not in the clone; scanning the full history"
+  fi
+fi
+
 "$bin_dir/gitleaks" "${args[@]}" --report-format json --report-path "$REPORT_DIR/gitleaks.json" .
 "$bin_dir/gitleaks" "${args[@]}" --report-format sarif --report-path "$REPORT_DIR/gitleaks.sarif" . >/dev/null
 
@@ -31,9 +46,9 @@ count=$(jq 'length' "$REPORT_DIR/gitleaks.json")
 echo "findings=$count" >> "$GITHUB_OUTPUT"
 
 {
-  echo "### Gitleaks (v${VERSION}, full history)"
+  echo "### Gitleaks (v${VERSION}, ${scope})"
   if [ "$count" -eq 0 ]; then
-    echo "No secrets found."
+    echo "No secrets found in ${scope}."
   else
     echo "**${count} potential secret(s) found.** Values are redacted; rotate anything real, then add a \`.gitleaksignore\` entry for false positives."
     echo
@@ -45,5 +60,5 @@ echo "findings=$count" >> "$GITHUB_OUTPUT"
 } >> "$GITHUB_STEP_SUMMARY"
 
 if [ "$count" -gt 0 ]; then
-  echo "::warning title=Gitleaks::${count} potential secret(s) in git history. See the job summary."
+  echo "::warning title=Gitleaks::${count} potential secret(s) in ${scope}. See the job summary."
 fi

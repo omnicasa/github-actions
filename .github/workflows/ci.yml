@@ -717,11 +717,17 @@ jobs:
           token="ghp_$(python3 -c 'import secrets, string; print("".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(36)))')"
           echo "::add-mask::$token"
           echo "TOKEN=$token" >> "$GITHUB_ENV"
+          # Three commits, so a commit range can include the leak or leave it out.
+          echo fixture > README.md
+          git add -A
+          git commit -qm base
           printf 'GITHUB_TOKEN=%s\n' "$token" > leak.env
           printf 'requests==2.19.0\n' > requirements.txt
           printf 'FROM python:3.8\nUSER root\n' > Dockerfile
           git add -A
-          git commit -qm fixture
+          git commit -qm leak
+          echo more >> README.md
+          git commit -qam later
 
       - name: Run the scanners
         working-directory: ${{ runner.temp }}/fx
@@ -732,6 +738,14 @@ jobs:
           export REPORT_DIR="$RUNNER_TEMP/reports"
 
           GITHUB_OUTPUT="$out/gitleaks" CONFIG="" \
+            bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
+          # Ranges: the leak commit is HEAD~1. HEAD~1..HEAD leaves it out; HEAD~2..HEAD
+          # takes it in; a start commit that is not in the clone falls back to everything.
+          GITHUB_OUTPUT="$out/range-out" CONFIG="" LOG_OPTS="HEAD~1..HEAD" \
+            bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
+          GITHUB_OUTPUT="$out/range-in" CONFIG="" LOG_OPTS="HEAD~2..HEAD" \
+            bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
+          GITHUB_OUTPUT="$out/range-missing" CONFIG="" LOG_OPTS="0000000000000000000000000000000000000001..HEAD" \
             bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
           GITHUB_OUTPUT="$out/fs" MODE=fs TARGET=. PLATFORM=linux/amd64 \
             bash "$GITHUB_WORKSPACE/actions/trivy-scan/trivy-scan.sh"
@@ -747,6 +761,9 @@ jobs:
           fail() { echo "::error::$1"; exit 1; }
 
           grep -qx 'findings=1' "$out/gitleaks" || fail "gitleaks should report exactly the planted token: $(cat "$out/gitleaks")"
+          grep -qx 'findings=0' "$out/range-out" || fail "a range that leaves the leak out must find nothing: $(cat "$out/range-out")"
+          grep -qx 'findings=1' "$out/range-in" || fail "a range that includes the leak must find it: $(cat "$out/range-in")"
+          grep -qx 'findings=1' "$out/range-missing" || fail "a missing range start must fall back to the full history: $(cat "$out/range-missing")"
           crit=$(sed -n 's/^critical=//p' "$out/fs")
           high=$(sed -n 's/^high=//p' "$out/fs")
           [ "$crit" -ge 1 ] || fail "trivy fs should flag the planted token as CRITICAL"

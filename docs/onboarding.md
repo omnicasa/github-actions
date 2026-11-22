@@ -213,9 +213,14 @@ job. Nothing to add to a new caller:
 - **Trivy on the pushed image**, inside the build job, by digest: vulnerabilities and
   secrets baked into the image, plus a CycloneDX SBOM. Adds under a minute before the
   deploy starts.
-- **Gitleaks over the full git history** and **Trivy over the source tree** (dependency
+- **Gitleaks over the new commits** of the PR or push (a finding is about this change, not
+  history already triaged) and **Trivy over the source tree** (dependency
   lockfiles, Dockerfile, Helm values, licences), in a parallel job that no other job waits
   for.
+
+To scan the **full history** once, dispatch the Deploy workflow by hand (Actions tab, any
+environment): a manual run scans every commit. Old findings that stay after triage go in
+`.gitleaksignore`.
 
 Nothing here can fail or block a deploy. Read the findings in the run's job summary, or
 download the `security-image-*` / `security-source-*` artifacts (SARIF, JSON, SBOM; kept 30
