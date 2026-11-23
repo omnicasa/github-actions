@@ -690,3 +690,99 @@ jobs:
               -kubernetes-version 1.32.0 \
               -schema-location default \
               -ignore-missing-schemas   # KEDA ScaledObject is a CRD
+
+  # The scans are report-only in production, so a scanner that silently finds nothing
+  # looks identical to a clean repo. This proves they still find a planted secret, a
+  # vulnerable dependency and a vulnerable image, and that no secret value reaches a
+  # report or the summary.
+  security-scan:
+    name: Security scan actions find what they should
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      # Generated at run time: a token-shaped string committed here would trip every
+      # secret scanner pointed at this repo, and gitleaks ignores the well-known
+      # AWS ...EXAMPLE keys, so those prove nothing.
+      - name: Build fixture repo
+        run: |
+          set -euo pipefail
+          fx="$RUNNER_TEMP/fx"
+          mkdir -p "$fx"
+          cd "$fx"
+          git init -q .
+          git config user.email ci@example.com
+          git config user.name ci
+          token="ghp_$(python3 -c 'import secrets, string; print("".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(36)))')"
+          echo "::add-mask::$token"
+          echo "TOKEN=$token" >> "$GITHUB_ENV"
+          # Three commits, so a commit range can include the leak or leave it out.
+          echo fixture > README.md
+          git add -A
+          git commit -qm base
+          printf 'GITHUB_TOKEN=%s\n' "$token" > 'leak|pipe.env'
+          printf 'requests==2.19.0\n' > requirements.txt
+          printf 'FROM python:3.8\nUSER root\n' > Dockerfile
+          git add -A
+          git commit -qm leak
+          echo more >> README.md
+          git commit -qam later
+
+      - name: Run the scanners
+        working-directory: ${{ runner.temp }}/fx
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out"
+          mkdir -p "$out"
+          export REPORT_DIR="$RUNNER_TEMP/reports"
+          # Each step has its own summary file, so collect the scripts' summaries where
+          # the assert step can read them.
+          export GITHUB_STEP_SUMMARY="$out/summary.md"
+
+          GITHUB_OUTPUT="$out/gitleaks" CONFIG="" \
+            bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
+          # Ranges: the leak commit is HEAD~1. HEAD~1..HEAD leaves it out; HEAD~2..HEAD
+          # takes it in; a start commit that is not in the clone falls back to everything.
+          GITHUB_OUTPUT="$out/range-out" CONFIG="" LOG_OPTS="HEAD~1..HEAD" \
+            bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
+          GITHUB_OUTPUT="$out/range-in" CONFIG="" LOG_OPTS="HEAD~2..HEAD" \
+            bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
+          GITHUB_OUTPUT="$out/range-missing" CONFIG="" LOG_OPTS="0000000000000000000000000000000000000001..HEAD" \
+            bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
+          GITHUB_OUTPUT="$out/fs" MODE=fs TARGET=. PLATFORM=linux/amd64 \
+            bash "$GITHUB_WORKSPACE/actions/trivy-scan/trivy-scan.sh"
+          # An old, pinned, public image that will always have known vulnerabilities. The
+          # platform list is a multi-arch build's: Trivy scans the first.
+          GITHUB_OUTPUT="$out/image" MODE=image PLATFORM="linux/amd64,linux/arm64" \
+            TARGET=public.ecr.aws/docker/library/alpine:3.12 \
+            bash "$GITHUB_WORKSPACE/actions/trivy-scan/trivy-scan.sh"
+
+      - name: Assert the findings
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out"
+          fail() { echo "::error::$1"; exit 1; }
+
+          grep -qx 'findings=1' "$out/gitleaks" || fail "gitleaks should report exactly the planted token: $(cat "$out/gitleaks")"
+          grep -qx 'findings=0' "$out/range-out" || fail "a range that leaves the leak out must find nothing: $(cat "$out/range-out")"
+          grep -qx 'findings=1' "$out/range-in" || fail "a range that includes the leak must find it: $(cat "$out/range-in")"
+          grep -qx 'findings=1' "$out/range-missing" || fail "a missing range start must fall back to the full history: $(cat "$out/range-missing")"
+          crit=$(sed -n 's/^critical=//p' "$out/fs")
+          high=$(sed -n 's/^high=//p' "$out/fs")
+          [ "$crit" -ge 1 ] || fail "trivy fs should flag the planted token as CRITICAL"
+          [ "$high" -ge 1 ] || fail "trivy fs should flag requests 2.19.0 or the root Dockerfile as HIGH"
+          img=$(( $(sed -n 's/^critical=//p' "$out/image") + $(sed -n 's/^high=//p' "$out/image") ))
+          [ "$img" -ge 1 ] || fail "trivy image should find vulnerabilities in alpine:3.12"
+          for f in gitleaks.sarif trivy-fs.sarif trivy-image.sarif trivy-image.sbom.cdx.json; do
+            [ -s "$RUNNER_TEMP/reports/$f" ] || fail "missing report $f"
+          done
+
+          # A "|" in a file name must stay inside its markdown table cell.
+          grep -qF 'leak\|pipe.env' "$out/summary.md" || fail "file name with a pipe was not escaped in the summary"
+
+          # The point of --redact and of reading only rule ids: no value in any output.
+          if grep -rqF "$TOKEN" "$RUNNER_TEMP/reports" "$out/summary.md"; then
+            fail "the planted secret value reached a report or the job summary"
+          fi
+          echo "scanners found what they should, and nothing leaked"

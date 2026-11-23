@@ -124,6 +124,17 @@ on:
         type: string
         required: false
         default: linux/amd64
+      security-scan:
+        description: >-
+          Scan for leaked secrets and known vulnerabilities, report-only: findings land in
+          the job summary and a security-* artifact, and nothing here can fail or gate the
+          run. Trivy scans the pushed image inside the build job (adds well under a minute
+          before the deploy starts); a parallel job runs gitleaks over the new commits of a
+          push or PR (the full history on a manual run) and Trivy over the source tree and Helm values. On by default; a caller
+          opts out with `security-scan: false`.
+        type: boolean
+        required: false
+        default: true
       test-command:
         description: >-
           Shell command for the test job. Blank skips the job entirely — better than a
@@ -277,6 +288,66 @@ jobs:
       - run: npm ci
       - run: ${{ inputs.test-command }}
 
+  # Not in the `needs` of build, deploy or notify, so it runs beside them and can
+  # neither delay nor gate a deploy. Credential-free like `resolve`: no environment, no
+  # secrets, a read-only token.
+  security-source:
+    name: Security scan (source)
+    needs: resolve
+    # Same gate as the build job: a call that only promotes an existing image
+    # (`build: false`) scans nothing, because the call that built it already did, and a
+    # build-only call scans even when its own environment is switched off.
+    if: >-
+      ${{ inputs.security-scan && inputs.build
+          && (inputs.build-only || needs.resolve.outputs.enabled == 'true') }}
+    # Belt and braces with the per-step settings: even a failed job leaves the run green.
+    continue-on-error: true
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 20
+    steps:
+      # Full history, because gitleaks needs the commits behind a range, and a manual
+      # run scans all of them (a secret removed in a later commit is still a leaked secret).
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # A PR or a push scans only its own new commits, so a finding is about this change
+      # and not about history already triaged. A manual run (workflow_dispatch) or any
+      # other event scans the whole history: that is how the full scan is run on demand.
+      - name: Scan git history (gitleaks)
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: omnicasa/github-actions/actions/gitleaks-scan@v1
+        with:
+          log-opts: >-
+            ${{ github.event_name == 'pull_request'
+                && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha)
+                || github.event_name == 'push'
+                && github.event.before != '0000000000000000000000000000000000000000'
+                && format('{0}..{1}', github.event.before, github.sha)
+                || '' }}
+          report-dir: ${{ runner.temp }}/security-source
+
+      - name: Scan source, Dockerfile and Helm values (Trivy)
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: omnicasa/github-actions/actions/trivy-scan@v1
+        with:
+          mode: fs
+          report-dir: ${{ runner.temp }}/security-source
+
+      - name: Upload source scan reports
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-source-${{ inputs.environment || github.ref_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/security-source
+          retention-days: 30
+          if-no-files-found: ignore
+
   build:
     name: Build & push
     needs:
@@ -397,6 +468,31 @@ jobs:
             echo "::warning title=Node version::could not run node -v in $ref (no node in image, or pull failed)"
           fi
           docker image rm "$ref" >/dev/null 2>&1 || true
+
+      # Report-only by construction: the step cannot fail the job (continue-on-error),
+      # cannot hang it (timeout-minutes), and the scan targets the digest just pushed, so
+      # it reports on exactly the bytes the deploy job will roll out.
+      - name: Scan image (Trivy)
+        id: trivy-image
+        if: success() && inputs.security-scan
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: omnicasa/github-actions/actions/trivy-scan@v1
+        with:
+          mode: image
+          target: ${{ vars.OVH_REGISTRY }}/${{ needs.resolve.outputs.repository }}@${{ steps.build.outputs.digest }}
+          platform: ${{ inputs.build-platforms }}
+          report-dir: ${{ runner.temp }}/security-image
+
+      - name: Upload image scan reports
+        if: always() && inputs.security-scan && steps.trivy-image.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-image-${{ inputs.environment || github.ref_name }}-${{ steps.tag.outputs.tag }}
+          path: ${{ runner.temp }}/security-image
+          retention-days: 30
+          if-no-files-found: ignore
 
       # `always()`, because a failed build leaves the files behind just the same, and
       # the runner is reused across jobs on self-hosted labels.

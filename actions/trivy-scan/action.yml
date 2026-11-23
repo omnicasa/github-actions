@@ -1,0 +1,58 @@
+name: Trivy scan
+description: >-
+  Scan a pushed image (mode image) or the checked-out source tree (mode fs) with Trivy
+  for vulnerabilities, secrets, misconfigurations and licences, and write the findings to
+  the job summary and a report directory. Report-only: it never fails the job.
+
+# The Trivy CLI, not aquasecurity/trivy-action: in March 2026 most of that action's tags
+# were force-pushed with malicious code (CVE-2026-33634). The binary is pinned and its
+# SHA-256 is in trivy-scan.sh, so a retagged release cannot run here.
+
+inputs:
+  mode:
+    description: image | fs
+    required: true
+  target:
+    description: Image reference (mode image, ideally name@sha256:digest) or path (mode fs).
+    required: false
+    default: "."
+  platform:
+    description: Platform of a multi-arch image to scan (mode image).
+    required: false
+    default: linux/amd64
+  report-dir:
+    description: Directory the reports are written to. Upload it with actions/upload-artifact.
+    required: false
+    default: security-reports
+
+outputs:
+  critical:
+    description: Count of CRITICAL findings (vulnerabilities, secrets, misconfigurations).
+    value: ${{ steps.scan.outputs.critical }}
+  high:
+    description: Count of HIGH findings.
+    value: ${{ steps.scan.outputs.high }}
+
+runs:
+  using: composite
+  steps:
+    # Daily key: the DB is rebuilt every few hours, so one download per day per runner
+    # cache scope is plenty, and a fresh day always gets a fresh DB.
+    - id: today
+      shell: bash
+      run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache@v6
+      with:
+        path: ~/.cache/trivy
+        key: trivy-db-${{ steps.today.outputs.date }}
+        restore-keys: trivy-db-
+
+    - id: scan
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        TARGET: ${{ inputs.target }}
+        PLATFORM: ${{ inputs.platform }}
+        REPORT_DIR: ${{ inputs.report-dir }}
+      run: bash "${{ github.action_path }}/trivy-scan.sh"

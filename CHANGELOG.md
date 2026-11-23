@@ -6,6 +6,37 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
+## [v1.18.0] — unreleased
+
+### Added
+
+- **Report-only security scans in `deploy.yml`, on by default: gitleaks and Trivy.** New
+  input `security-scan`, default `true`: every caller gets the scans when it moves to this
+  release, with no change to its workflow. Opt out with `security-scan: false`. When on:
+  - the build job scans the pushed image digest with Trivy (vulnerabilities and secrets)
+    and writes a CycloneDX SBOM, before "Shred build secrets";
+  - a new job `Security scan (source)` runs gitleaks over the new commits and Trivy
+    over the source tree, Dockerfile and Helm values, in parallel with the build. Gitleaks
+    scans only the new commits of a PR or push (`base..head`); a manual run
+    (`workflow_dispatch`) scans the full history, which is how to run the one-off full scan. No other
+    job waits for it. It runs only on a call that builds, so a `build-only` call plus
+    several `build: false` deploy calls of one commit scan it once.
+
+  Findings go to the job summary, a `::warning` annotation and a `security-*` artifact
+  (SARIF, JSON, SBOM, 30 days). Every scan step has `continue-on-error` and a timeout, so
+  nothing can fail or gate the deploy; the image scan adds well under a minute before it.
+  New actions `actions/gitleaks-scan` and `actions/trivy-scan`. Both download the release
+  binary and check a SHA-256 kept in this repo, instead of using `gitleaks/gitleaks-action`
+  (paid licence on org repos) or `aquasecurity/trivy-action` (tags hijacked in March 2026,
+  CVE-2026-33634). A `.trivyignore` and a `.gitleaks.toml` in the caller repo are honoured.
+
+  Needs no new permission or secret: `actions/upload-artifact` and a read-only token.
+
+  What a bump changes under you: the build job is a minute or less longer (the image scan,
+  measured at about 15 s on sang-demo), one extra job runs in parallel, and two artifacts
+  per run are stored for 30 days. A caller that pins an exact tag gets none of this until
+  it moves its pin.
+
 ## [v1.17.0] — 2026-11-07
 
 ### Changed

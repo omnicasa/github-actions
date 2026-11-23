@@ -205,6 +205,35 @@ bash /path/to/github-actions/scripts/check-workflow.sh /path/to/app-repo
 Fix every FAIL. Read the warnings — several describe failures that only appear after a
 successful-looking deploy.
 
+### 7. Security scans (on by default, report-only)
+
+Every build is scanned unless the caller sets `security-scan: false` in the `with:` of a
+job. Nothing to add to a new caller:
+
+- **Trivy on the pushed image**, inside the build job, by digest: vulnerabilities and
+  secrets baked into the image, plus a CycloneDX SBOM. Adds under a minute before the
+  deploy starts.
+- **Gitleaks over the new commits** of the PR or push (a finding is about this change, not
+  history already triaged) and **Trivy over the source tree** (dependency
+  lockfiles, Dockerfile, Helm values, licences), in a parallel job that no other job waits
+  for.
+
+To scan the **full history** once, dispatch the Deploy workflow by hand (Actions tab, any
+environment): a manual run scans every commit. Old findings that stay after triage go in
+`.gitleaksignore`.
+
+Nothing here can fail or block a deploy. Read the findings in the run's job summary, or
+download the `security-image-*` / `security-source-*` artifacts (SARIF, JSON, SBOM; kept 30
+days). Secret values are redacted everywhere. Rotate anything real.
+
+Both scans need an x86-64 Linux runner (the pinned binaries are x86-64 only). On another
+architecture they print a warning and skip. A multi-arch build (`build-platforms:
+linux/amd64,linux/arm64`) has its first platform scanned.
+
+To silence a false positive: a `.gitleaksignore` (fingerprints) or `.gitleaks.toml`, and a
+`.trivyignore` (CVE ids), at the repo root. Both tools are pinned by version and SHA-256 in
+`actions/*-scan/*.sh`, not by a marketplace action tag.
+
 ## Gotchas worth knowing before you hit them
 
 - **Probe and annotation maps merge, they do not replace.** If the chart default sets a
