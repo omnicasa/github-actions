@@ -6,6 +6,12 @@ set -euo pipefail
 VERSION=8.30.1
 SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 
+# Only the linux x86-64 build is pinned and checksummed here.
+if [ "$(uname -m)" != x86_64 ]; then
+  echo "::warning title=Gitleaks::only x86-64 Linux runners are supported (this one is $(uname -m)); scan skipped"
+  exit 0
+fi
+
 bin_dir="${RUNNER_TEMP:-/tmp}/gitleaks-bin"
 mkdir -p "$bin_dir" "$REPORT_DIR"
 tarball="$bin_dir/gitleaks.tar.gz"
@@ -54,7 +60,9 @@ echo "findings=$count" >> "$GITHUB_OUTPUT"
     echo
     echo "| Rule | File | Line | Commit | Author |"
     echo "|---|---|---|---|---|"
-    jq -r '.[:50][] | "| \(.RuleID) | \(.File) | \(.StartLine) | \(.Commit[0:8]) | \(.Author) |"' "$REPORT_DIR/gitleaks.json"
+    # md: a file name or commit author can hold a "|" or a newline; keep it in its cell.
+    jq -r 'def md: tostring | gsub("[\r\n]+"; " ") | gsub("\\|"; "\\|") | .[0:120];
+           .[:50][] | "| \(.RuleID | md) | \(.File | md) | \(.StartLine | md) | \(.Commit[0:8] | md) | \(.Author | md) |"' "$REPORT_DIR/gitleaks.json"
     [ "$count" -gt 50 ] && echo && echo "…and $((count - 50)) more in the artifact."
   fi
 } >> "$GITHUB_STEP_SUMMARY"

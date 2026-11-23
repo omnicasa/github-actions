@@ -721,7 +721,7 @@ jobs:
           echo fixture > README.md
           git add -A
           git commit -qm base
-          printf 'GITHUB_TOKEN=%s\n' "$token" > leak.env
+          printf 'GITHUB_TOKEN=%s\n' "$token" > 'leak|pipe.env'
           printf 'requests==2.19.0\n' > requirements.txt
           printf 'FROM python:3.8\nUSER root\n' > Dockerfile
           git add -A
@@ -749,8 +749,9 @@ jobs:
             bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
           GITHUB_OUTPUT="$out/fs" MODE=fs TARGET=. PLATFORM=linux/amd64 \
             bash "$GITHUB_WORKSPACE/actions/trivy-scan/trivy-scan.sh"
-          # An old, pinned, public image that will always have known vulnerabilities.
-          GITHUB_OUTPUT="$out/image" MODE=image PLATFORM=linux/amd64 \
+          # An old, pinned, public image that will always have known vulnerabilities. The
+          # platform list is a multi-arch build's: Trivy scans the first.
+          GITHUB_OUTPUT="$out/image" MODE=image PLATFORM="linux/amd64,linux/arm64" \
             TARGET=public.ecr.aws/docker/library/alpine:3.12 \
             bash "$GITHUB_WORKSPACE/actions/trivy-scan/trivy-scan.sh"
 
@@ -773,6 +774,9 @@ jobs:
           for f in gitleaks.sarif trivy-fs.sarif trivy-image.sarif trivy-image.sbom.cdx.json; do
             [ -s "$RUNNER_TEMP/reports/$f" ] || fail "missing report $f"
           done
+
+          # A "|" in a file name must stay inside its markdown table cell.
+          grep -qF 'leak\|pipe.env' "$GITHUB_STEP_SUMMARY" || fail "file name with a pipe was not escaped in the summary"
 
           # The point of --redact and of reading only rule ids: no value in any output.
           if grep -rqF "$TOKEN" "$RUNNER_TEMP/reports" "$GITHUB_STEP_SUMMARY"; then

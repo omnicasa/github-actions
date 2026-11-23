@@ -6,6 +6,16 @@ set -euo pipefail
 VERSION=0.76.2
 SHA256=bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
 
+# Only the linux x86-64 build is pinned and checksummed here.
+if [ "$(uname -m)" != x86_64 ]; then
+  echo "::warning title=Trivy::only x86-64 Linux runners are supported (this one is $(uname -m)); scan skipped"
+  exit 0
+fi
+
+# Trivy scans one platform. A multi-arch build passes a list such as
+# linux/amd64,linux/arm64: scan the first.
+PLATFORM="${PLATFORM%%,*}"
+
 bin_dir="${RUNNER_TEMP:-/tmp}/trivy-bin"
 mkdir -p "$bin_dir" "$REPORT_DIR"
 tarball="$bin_dir/trivy.tar.gz"
@@ -74,9 +84,12 @@ secrets=$(jq '[.[] | select(.kind == "secret")] | length' "$REPORT_DIR/$stem.fin
     echo
     echo "| Severity | Type | ID | Detail | Fixed in | Where |"
     echo "|---|---|---|---|---|---|"
-    jq -r '[.[] | select(.sev == "CRITICAL" or .sev == "HIGH")]
+    # md: names come from packages, files and commit authors, so keep a "|" or a newline
+    # in one from breaking the table.
+    jq -r 'def md: tostring | gsub("[\r\n]+"; " ") | gsub("\\|"; "\\|") | .[0:120];
+           [.[] | select(.sev == "CRITICAL" or .sev == "HIGH")]
            | sort_by(.sev != "CRITICAL")[:25][]
-           | "| \(.sev) | \(.kind) | \(.id) | \(.what) | \(.fix) | \(.target) |"' "$REPORT_DIR/$stem.findings.json"
+           | "| \(.sev | md) | \(.kind | md) | \(.id | md) | \(.what | md) | \(.fix | md) | \(.target | md) |"' "$REPORT_DIR/$stem.findings.json"
   fi
 } >> "$GITHUB_STEP_SUMMARY"
 

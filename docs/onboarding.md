@@ -226,6 +226,10 @@ Nothing here can fail or block a deploy. Read the findings in the run's job summ
 download the `security-image-*` / `security-source-*` artifacts (SARIF, JSON, SBOM; kept 30
 days). Secret values are redacted everywhere. Rotate anything real.
 
+Both scans need an x86-64 Linux runner (the pinned binaries are x86-64 only). On another
+architecture they print a warning and skip. A multi-arch build (`build-platforms:
+linux/amd64,linux/arm64`) has its first platform scanned.
+
 To silence a false positive: a `.gitleaksignore` (fingerprints) or `.gitleaks.toml`, and a
 `.trivyignore` (CVE ids), at the repo root. Both tools are pinned by version and SHA-256 in
 `actions/*-scan/*.sh`, not by a marketplace action tag.
