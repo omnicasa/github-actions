@@ -736,6 +736,9 @@ jobs:
           out="$RUNNER_TEMP/out"
           mkdir -p "$out"
           export REPORT_DIR="$RUNNER_TEMP/reports"
+          # Each step has its own summary file, so collect the scripts' summaries where
+          # the assert step can read them.
+          export GITHUB_STEP_SUMMARY="$out/summary.md"
 
           GITHUB_OUTPUT="$out/gitleaks" CONFIG="" \
             bash "$GITHUB_WORKSPACE/actions/gitleaks-scan/gitleaks-scan.sh"
@@ -776,10 +779,10 @@ jobs:
           done
 
           # A "|" in a file name must stay inside its markdown table cell.
-          grep -qF 'leak\|pipe.env' "$GITHUB_STEP_SUMMARY" || fail "file name with a pipe was not escaped in the summary"
+          grep -qF 'leak\|pipe.env' "$out/summary.md" || fail "file name with a pipe was not escaped in the summary"
 
           # The point of --redact and of reading only rule ids: no value in any output.
-          if grep -rqF "$TOKEN" "$RUNNER_TEMP/reports" "$GITHUB_STEP_SUMMARY"; then
+          if grep -rqF "$TOKEN" "$RUNNER_TEMP/reports" "$out/summary.md"; then
             fail "the planted secret value reached a report or the job summary"
           fi
           echo "scanners found what they should, and nothing leaked"
