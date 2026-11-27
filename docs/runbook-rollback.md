@@ -5,7 +5,9 @@ Read top to bottom. Most incidents stop at step 1.
 ## 0. What already happened automatically
 
 `helm upgrade` runs with `--atomic`, so a failed upgrade **has already rolled itself back**
-before the job finished. If the deploy job is red, the previous version is almost certainly
+before the job finished. A first install is the exception: it runs without `--atomic`, so a
+failed one stays in the namespace as release status `failed`, pods included. Fix the cause
+and re-run the deploy; it upgrades over the failed release. If the deploy job is red, the previous version is almost certainly
 still serving. Confirm before doing anything:
 
 ```bash
@@ -54,17 +56,24 @@ helm rollback <app> <revision> -n <namespace> --wait --timeout 10m
 kubectl rollout status deployment/<app> -n <namespace>
 ```
 
-## 3. "another operation is in progress"
+## 3. "another operation is in progress" or "has no deployed releases"
 
 The release is stuck in `pending-upgrade`, `pending-install` or `pending-rollback`, left
-by a run that was cancelled mid-upgrade.
+by a run that was cancelled mid-upgrade. Or it is stuck in `uninstalling`: an uninstall
+died part-way, usually because CI may not delete one of the chart's kinds (the
+ServiceAccount, on namespaces provisioned before that RBAC was granted).
 
-The deploy workflow detects and clears this automatically before deploying, so **just run
-the deploy again**. By hand:
+The deploy workflow detects and clears all of these before deploying, so **just run the
+deploy again**. For `pending-upgrade`/`pending-rollback`, and `pending-install` on a release
+that was live before, it runs `helm rollback`. For `uninstalling`, and a `pending-install`
+that never went live, there is nothing to roll back to, so it deletes the release's Helm
+records (the `sh.helm.release.v1.<app>.*` secrets) and installs fresh. The install adopts
+any leftover objects, because they still carry the release's ownership annotations. By hand:
 
 ```bash
 helm status <app> -n <namespace> -o json | jq -r '.info.status'
-helm rollback <app> -n <namespace>
+helm rollback <app> -n <namespace>                                   # pending-*
+kubectl delete secret -n <namespace> -l owner=helm,name=<app>        # uninstalling
 ```
 
 This is why the deploy job sets `cancel-in-progress: false`. Never cancel a running deploy

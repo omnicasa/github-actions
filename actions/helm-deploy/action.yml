@@ -37,7 +37,9 @@ inputs:
     required: false
     default: "10"
   atomic:
-    description: Roll back automatically if the upgrade fails
+    description: >-
+      Roll back automatically if the upgrade fails. Not applied to a first install:
+      there is nothing to roll back to, and the failed pods are the only evidence.
     required: false
     default: "true"
   dry-run:
@@ -113,25 +115,66 @@ runs:
         echo "preflight ok: namespace $NAMESPACE, pull secret ${PULL_SECRET:-<none>}"
 
     - name: Unstick a pending release
+      id: unstick
       shell: bash
       env:
         RELEASE: ${{ inputs.release }}
         NAMESPACE: ${{ inputs.namespace }}
       run: |
         set -euo pipefail
-        # A run cancelled mid-upgrade leaves the release holding the lock. Every
-        # later deploy then fails with "another operation is in progress" until
-        # someone intervenes by hand.
-        status=$(helm status "$RELEASE" -n "$NAMESPACE" -o json 2>/dev/null \
-                 | jq -r '.info.status // empty' || true)
+        # The deploy job's concurrency group never cancels in progress, so any
+        # pending-* or uninstalling status seen here is left over from a dead run.
+        release_status() {
+          helm status "$RELEASE" -n "$NAMESPACE" -o json 2>/dev/null \
+            | jq -r '.info.status // empty' || true
+        }
+        status=$(release_status)
+
+        live=false
+        if [ -n "$status" ]; then
+          live=$(helm history "$RELEASE" -n "$NAMESPACE" --max 256 -o json \
+                 | jq -r 'any(.[]; .status == "deployed" or .status == "superseded")')
+        fi
+
+        # Deletes only Helm's release records, never workload objects. Leftovers
+        # still carry the release's ownership annotations, so the next install
+        # adopts them.
+        purge_records() {
+          echo "::warning::release stuck in $status — deleting its Helm records so this deploy installs fresh"
+          kubectl delete secret -n "$NAMESPACE" -l "owner=helm,name=$RELEASE"
+        }
+
         case "$status" in
-          pending-upgrade|pending-install|pending-rollback)
+          uninstalling)
+            # An uninstall that died part-way, typically --atomic undoing a failed
+            # first install when CI lacks delete RBAC on one of the kinds. Helm can
+            # neither upgrade nor reinstall over it ("has no deployed releases"),
+            # and retrying the uninstall dies on the same object.
+            purge_records
+            ;;
+          pending-install)
+            if [ "$live" = true ]; then
+              echo "::warning::release stuck in $status — rolling back before deploying"
+              helm rollback "$RELEASE" -n "$NAMESPACE" || true
+            else
+              # A first install has no revision to roll back to.
+              purge_records
+            fi
+            ;;
+          pending-upgrade|pending-rollback)
+            # A run cancelled mid-upgrade leaves the release holding the lock.
             echo "::warning::release stuck in $status — rolling back before deploying"
             helm rollback "$RELEASE" -n "$NAMESPACE" || true
             ;;
           *)
             echo "release status: ${status:-not installed}"
             ;;
+        esac
+
+        # Same rule `helm upgrade --install` uses to choose the install path.
+        case "$(release_status)" in
+          ""|uninstalled) echo "first-install=true" >> "$GITHUB_OUTPUT" ;;
+          *)              echo "first-install=false" >> "$GITHUB_OUTPUT" ;;
         esac
 
     - name: Diff against the live release
@@ -173,6 +216,7 @@ runs:
         TIMEOUT: ${{ inputs.timeout }}
         HISTORY_MAX: ${{ inputs.history-max }}
         ATOMIC: ${{ inputs.atomic }}
+        FIRST_INSTALL: ${{ steps.unstick.outputs.first-install }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
         set -uo pipefail
@@ -184,6 +228,13 @@ runs:
         # shellcheck disable=SC2153  # ATOMIC is an action input, injected via env:
         if [ "$ATOMIC" = "true" ]; then
           atomic="--atomic"
+        fi
+        # --atomic on an install means uninstall-on-failure. That deletes the failed
+        # pods, and if CI lacks delete RBAC on any chart kind it strands the release
+        # in `uninstalling`. Left as `failed` instead, the next run upgrades over it.
+        if [ "$FIRST_INSTALL" = "true" ] && [ -n "$atomic" ]; then
+          echo "::notice::first install of $RELEASE — --atomic skipped; a failure leaves the pods for diagnostics"
+          atomic=""
         fi
 
         # Capture unhealthy pods WHILE the upgrade runs. With --atomic, helm finishes
@@ -215,10 +266,17 @@ runs:
           cat "$capture" 2>/dev/null || echo "(nothing captured — the pods never started)"
           echo "::endgroup::"
           {
-            echo "### Deploy failed — pod logs captured before the rollback"
-            echo
-            echo "\`helm upgrade --atomic\` has already rolled back, so the cluster no"
-            echo "longer holds this evidence. Captured live during the upgrade:"
+            if [ -n "$atomic" ]; then
+              echo "### Deploy failed — pod logs captured before the rollback"
+              echo
+              echo "\`helm upgrade --atomic\` has already rolled back, so the cluster no"
+              echo "longer holds this evidence. Captured live during the upgrade:"
+            else
+              echo "### Deploy failed — pod logs captured during the upgrade"
+              echo
+              echo "No rollback ran; the failed pods are still in the namespace."
+              echo "Fix the cause and re-run the deploy."
+            fi
             echo '```'
             tail -c 50000 "$capture" 2>/dev/null || echo "(nothing captured)"
             echo '```'
