@@ -8,6 +8,30 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
 
 ## [v1.18.0] — unreleased
 
+### Fixed
+
+- **A failed first install no longer wedges the release.** On a first install,
+  `--atomic` means uninstall-on-failure. Where CI's namespace RBAC cannot delete a
+  ServiceAccount, that uninstall died with `failed to delete release`. The release was left
+  in `uninstalling`, and every re-run failed with
+  `UPGRADE FAILED: "<app>" has no deployed releases` until someone deleted Helm's records
+  by hand. Seen on omnicasa-management2 production, 2026-11-27. Two changes in
+  `actions/helm-deploy`:
+  - A release that has never been live (a first install, or one whose every revision
+    failed) deploys without `--atomic`, whatever the `atomic` input says. A failed one is
+    left as `failed`, with its pods in the namespace for `k8s-diagnostics` to read, and
+    the next deploy upgrades over it. Upgrades of a release that has been live are still
+    atomic.
+  - "Unstick a pending release" also handles `uninstalling`, and a `pending-install` with
+    no live revision. `helm rollback` cannot help either, so it deletes the release's Helm
+    records (`owner=helm,name=<release>` secrets) and the deploy installs fresh. The install
+    adopts leftover objects through their ownership annotations. Needs `list` and `delete`
+    on secrets, which the deployer Role already grants.
+
+  What a bump changes under you: a failed deploy of a never-live release no longer cleans
+  up after itself.
+  Its pods stay in the namespace, serving nothing, until the next deploy.
+
 ### Added
 
 - **Report-only security scans in `deploy.yml`, on by default: gitleaks and Trivy.** New
