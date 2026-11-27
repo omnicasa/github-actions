@@ -192,9 +192,9 @@ there is a stop-the-line defect.
 Merge. Delete the old chart and old workflow in the same commit — leaving them means two
 pipelines can deploy the same app.
 
-If it goes wrong: `--atomic` reverts automatically. A first install is not atomic: a
-failed one stays as release status `failed`, pods included, and the next deploy upgrades
-over it. If the release is left `pending-*` or `uninstalling`, re-run the deploy; it
+If it goes wrong: `--atomic` reverts automatically. Until the release has been live
+once, deploys are not atomic: a failed one stays as release status `failed`, pods
+included, and the next deploy upgrades over it. If the release is left `pending-*` or `uninstalling`, re-run the deploy; it
 unsticks the release first. See
 [runbook-rollback.md](runbook-rollback.md).
 

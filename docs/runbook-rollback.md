@@ -5,8 +5,9 @@ Read top to bottom. Most incidents stop at step 1.
 ## 0. What already happened automatically
 
 `helm upgrade` runs with `--atomic`, so a failed upgrade **has already rolled itself back**
-before the job finished. A first install is the exception: it runs without `--atomic`, so a
-failed one stays in the namespace as release status `failed`, pods included. Fix the cause
+before the job finished. A release that has never been live is the exception: it deploys
+without `--atomic`, so a failed one stays in the namespace as release status `failed`, pods
+included. Fix the cause
 and re-run the deploy; it upgrades over the failed release. If the deploy job is red, the previous version is almost certainly
 still serving. Confirm before doing anything:
 

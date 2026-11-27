@@ -38,8 +38,9 @@ inputs:
     default: "10"
   atomic:
     description: >-
-      Roll back automatically if the upgrade fails. Not applied to a first install:
-      there is nothing to roll back to, and the failed pods are the only evidence.
+      Roll back automatically if the upgrade fails. Not applied to a release that has
+      never been live: there is nothing to roll back to, and the failed pods are the
+      only evidence.
     required: false
     default: "true"
   dry-run:
@@ -171,11 +172,14 @@ runs:
             ;;
         esac
 
-        # Same rule `helm upgrade --install` uses to choose the install path.
+        # --atomic is useless on the install path (`helm upgrade --install` takes it
+        # for no release or an `uninstalled` one) and on a release that was never
+        # live: there it either uninstalls or finds nothing to roll back to.
         case "$(release_status)" in
-          ""|uninstalled) echo "first-install=true" >> "$GITHUB_OUTPUT" ;;
-          *)              echo "first-install=false" >> "$GITHUB_OUTPUT" ;;
+          ""|uninstalled) skip_atomic=true ;;
+          *)              skip_atomic=$([ "$live" = true ] && echo false || echo true) ;;
         esac
+        echo "skip-atomic=$skip_atomic" >> "$GITHUB_OUTPUT"
 
     - name: Diff against the live release
       shell: bash
@@ -216,7 +220,7 @@ runs:
         TIMEOUT: ${{ inputs.timeout }}
         HISTORY_MAX: ${{ inputs.history-max }}
         ATOMIC: ${{ inputs.atomic }}
-        FIRST_INSTALL: ${{ steps.unstick.outputs.first-install }}
+        SKIP_ATOMIC: ${{ steps.unstick.outputs.skip-atomic }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
         set -uo pipefail
@@ -232,8 +236,8 @@ runs:
         # --atomic on an install means uninstall-on-failure. That deletes the failed
         # pods, and if CI lacks delete RBAC on any chart kind it strands the release
         # in `uninstalling`. Left as `failed` instead, the next run upgrades over it.
-        if [ "$FIRST_INSTALL" = "true" ] && [ -n "$atomic" ]; then
-          echo "::notice::first install of $RELEASE — --atomic skipped; a failure leaves the pods for diagnostics"
+        if [ "$SKIP_ATOMIC" = "true" ] && [ -n "$atomic" ]; then
+          echo "::notice::$RELEASE has never been live — --atomic skipped; a failure leaves the pods for diagnostics"
           atomic=""
         fi
 
