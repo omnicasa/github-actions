@@ -6,7 +6,7 @@ Read it before moving a pin.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: semver, where
 the "API" is the workflow inputs, the action inputs, and the chart values.
 
-## [v1.18.0] — unreleased
+## [v1.18.1] — 2026-11-27
 
 ### Fixed
 
@@ -31,6 +31,8 @@ the "API" is the workflow inputs, the action inputs, and the chart values.
   What a bump changes under you: a failed deploy of a never-live release no longer cleans
   up after itself.
   Its pods stay in the namespace, serving nothing, until the next deploy.
+
+## [v1.18.0] — 2026-11-23
 
 ### Added
 
